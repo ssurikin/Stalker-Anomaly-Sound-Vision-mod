@@ -42,17 +42,33 @@
 -- ANV_SHOT (до ~246 м).
 --
 -- Движковый факт -> кольцо (v2.7). «Слышимость как в игре» заменена на
--- контракт доступности: всё, что движок САМ донёс до мода по каналу слуха
--- (npc_on_hear_callback - звук прошёл ИИ-фильтр дистанции и глухости стен)
--- или канала выстрелов (npc_on_weapon_shot_start - выстрел случился по факту),
--- показывается ВСЕГДА, без порога громкости и без антиспама (у weapon -
--- склейка по стрелку и так дедуплицирует копии от разных ИИ-слушателей).
--- Игрок с глухотой должен видеть каждый звук, который движок разослал.
--- Weapon-кольца защищены от вытеснения из очереди: при переполнении
+-- контракт доступности: каждый звук, донесённый до мода, показывается
+-- ВСЕГДА - без порога громкости и без антиспама. Гейт слышимости удалён
+-- совсем: у движковых событий (канал слуха) он противоречил факту, а у
+-- опроса мира резал звуки, которые слышно (гул зоны в 48 м давал
+-- 0.0135 < 0.02 и молчал). Громкость осталась только на размере и яркости
+-- кольца. Weapon-кольца защищены от вытеснения из очереди: при переполнении
 -- выталкивается самое старое НЕ-weapon событие (шаги/физика/гул зон),
--- а не красная метка (см. sound_vision_events). Порог loud_th и антиспам
--- остались только у опроса мира (шаги/физика/гул зон) - там громкость
--- наша модель, а не движковый факт.
+-- а не красная метка (см. sound_vision_events).
+--
+-- Маркер атаки - ВСЕГДА (v2.7). Канал слуха молчит чаще, чем ожидалось:
+-- у части паков оружия выстрел без валидного ogg-комментария получает
+-- game_type = 0 и ИИ его не рассылает вовсе, а если рядом со стрелком нет
+-- ни одного ИИ-слушателя, канал слуха не даст ни одной строки. Колбэка
+-- npc_on_weapon_shot_start в Anomaly 1.5.2 НЕТ (список колбэков
+-- anomaly-modding-book; RegisterScriptCallback не проверяет имена -
+-- «регистрация» не значит, что движок его вызовет: в логе боя 05.11 канал
+-- не дал ни одной строки при активной стрельбе). Поэтому факт выстрела
+-- добывается чистым Lua, на любой сборке:
+--   - опрос боезапаса (shot_poll): раз в 200 мс у каждого живого сталкера
+--     в 250 м читается active_item -> get_ammo_total(); счётчик упал -
+--     выстрел, кольцо у стрелка (рост счётчика - перезарядка, кольца нет);
+--   - actor_on_hit_callback: игрока задело - кольцо на том, кто нанёс
+--     удар, даже если все прочие каналы молчали.
+-- WPN_* от того, кто не сталкер, не мутант и не техника (зоны играют
+-- thermal-разряд звуком класса «выстрел»), перекрашивается в anomaly:
+-- раньше аномалия рисовала красное кольцо атаки за 150 м (лог 05.11:
+-- who=zone_mine_thermal_weak -> weapon, кольцо в 168 м).
 --
 -- Архитектура (SRP: один модуль - одна ответственность, зависимости
 -- однонаправленные, связывание ленивое через глобальные таблицы модулей):
@@ -84,20 +100,19 @@
 --   5) actor_on_item_drop (ванильный) - игрок выбросил предмет (стук)
 --   6) sound_vision_detect - опрос мира (4 Гц): шаги, физика, гул зон, болт
 --   7) actor_on_footstep (ванильный) - шаги самого игрока (выкл. по умолч.)
---   8) npc_on_weapon_shot_start (моддед-экзешники) - КАЖДЫЙ выстрел NPC:
---      кольцо ставится по факту стрельбы, независимо от звуковых метаданных
---      (на сборках без этих колбэков канал подхватывает якорение WPN_*
---      в on_npc_hear: WPN_shoot всегда якорится к стрелку, попадания пуль
---      приходят всегда и тоже ставят метку на стрелке, см. v2.3/v2.6)
---   9) npc_on_weapon_reload_start (моддед-экзешники) - начало перезарядки NPC
+--   8) shot_poll - опрос боезапаса (чистый Lua, v2.7): КАЖДЫЙ выстрел NPC,
+--      не зависит от ogg-метаданных и ИИ-слушателей; колбэк
+--      npc_on_weapon_shot_start остаётся бонусом экзешников, где он есть
+--   9) actor_on_hit_callback (ванильный) - игрока задело: кольцо на
+--      атакующем, гарантированный маркер атаки в момент попадания
 --
--- Зачем нужны 8 и 9: звук без валидного ogg-комментария получает
+-- Зачем нужен 8: звук без валидного ogg-комментария получает
 -- game_type = 0 (SoundRender_Source.cpp, конструктор) и движок его ИИ
 -- вообще не рассылает (Event_Propagade требует g_type != 0), а самозвуки
--- мотиватор пропускает - у части паков оружия колбэк слуха молчит, хотя
--- игрок звук слышит. Колбэки 8/9 добавлены в xray-monolith 2026-06-03
--- (выстрелы) и 2026-07-18 (перезарядка); на экзешниках без них safe_register
--- молча пропускает регистрацию и остаётся канал слуха (источник 1).
+-- мотиватор пропускает - у части паков оружия канал слуха молчит, хотя
+-- игрок звук слышит; и если рядом со стрелком нет ни одного ИИ-слушателя,
+-- канал слуха не даст ни одной строки. Опрос боезапаса закрывает оба
+-- случая: он не зависит ни от метаданных, ни от слушателей.
 --
 -- Сигнатуры и паттерны взяты из:
 --   robe127.github.io/stalker-anomaly-modding-guide (callbacks-reference)
@@ -398,6 +413,23 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                         end
                 end
         end
+        -- Зоны - не стрелки (v2.7): thermal-разряд аномалии приходит типом
+        -- WPN_shoot (движок играет его звуком класса «выстрел»), и без
+        -- перекраски аномалия рисовала красное кольцо атаки (лог 05.11:
+        -- who=zone_mine_thermal_weak -> weapon, кольцо в 168 м). Звук WPN_*
+        -- от того, кто не сталкер, не мутант и не техника, - это звук зоны:
+        -- перекрашиваем в anomaly и переключаем ключ источника на ключ зоны,
+        -- чтобы кольцо жило в одном экземпляре с её пульсами гула.
+        local push_who = who_id
+        if kind == "weapon" and src then
+                local ok_zh, zh = pcall(IsStalker, src)
+                local ok_zm, zm = pcall(IsMonster, src)
+                if not (ok_zh and zh) and not (ok_zm and zm)
+                        and not is_vehicle_obj(src) then
+                        kind = "anomaly"
+                        push_who = "anm" .. tostring(who_id)
+                end
+        end
         -- Восстановление громкости у игрока из якоря ИИ-наблюдения:
         -- на dl метрах от источника движок насчитал power; громкость падает
         -- обратным квадратом (дБ-модель расхождения фронта), значит у игрока
@@ -447,23 +479,23 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
         -- push_event: fact=true (движковый факт - показываем без порога,
         -- v2.7); weapon-события идут с force=true - склейка по стрелку
         -- дедуплицирует копии от разных ИИ-слушателей, антиспам им не нужен.
-        sound_vision_events.push_event(anch.x, anch.y, anch.z, kind, who_id,
+        sound_vision_events.push_event(anch.x, anch.y, anch.z, kind, push_who,
                 kind == "weapon", loud, true)
 end
 
 -- ---------------------------------------------------------------------------
--- Гарантированный канал выстрелов NPC (моддед-экзешники, см. шапку).
--- Сигнатура (callbacks_gameobject.script):
---   npc_on_weapon_shot_start(npc, weapon)    - на каждый выстрел сталкера
---     (per-shot: WeaponDispersion.cpp -> CAI_Stalker::on_weapon_shot_start);
---   npc_on_weapon_reload_start(npc, weapon)  - начало перезарядки.
+-- Бонусный канал выстрелов NPC: колбэк моддед-экзешников, ЕСЛИ он на этой
+-- сборке есть. В ванильном Anomaly 1.5.2 его нет (см. шапку v2.7), поэтому
+-- гарантию даёт shot_poll (опрос боезапаса ниже), а колбэк лишь ускоряет
+-- реакцию там, где движок сам сообщает о выстреле:
+--   npc_on_weapon_shot_start(npc, weapon)   - на каждый выстрел сталкера;
+--   npc_on_weapon_reload_start(npc, weapon) - начало перезарядки.
 -- Актёру колбэк не приходит (диспатчит только CAI_Stalker, не CActor).
 -- Громкость - от виртуальных якорей (единая модель с detect): без глушителя
 -- выстрел слышен до ~246 м (потолок KIND_CAP.weapon = 250, v2.6), с
--- глушителем до ~77 м, перезарядка до ~40 м. Ключ антиспама - id стрелка:
--- каналы слуха
--- и выстрела используют одно пространство ключей и в очереди склеиваются,
--- дублей колец нет.
+-- глушителем до ~77 м, перезарядка до ~40 м. Ключ источника - id стрелка:
+-- каналы слуха, опроса боезапаса и колбэка используют одно пространство
+-- ключей и в очереди склеиваются в живое кольцо, дублей нет.
 -- ---------------------------------------------------------------------------
 local function on_npc_shot_start(npc, weapon)
         if not sound_vision_config.mc.npc_shots then
@@ -606,6 +638,147 @@ local function pulse_vehicles(now)
 end
 
 -- ---------------------------------------------------------------------------
+-- Гарантированный канал выстрелов NPC (v2.7): ОПРОС БОЕЗАПАСА. Чистый Lua,
+-- работает на любой сборке. Колбэка npc_on_weapon_shot_start в Anomaly 1.5.2
+-- нет, а ИИ-рассылка звука выстрела зависит от ogg-комментариев оружия
+-- (game_type = 0 - движок звук не рассылает) и наличия ИИ-слушателей рядом,
+-- отсюда «то есть, то нет». Факт добываем сами: раз в WPN_POLL_MS у каждого
+-- живого сталкера в радиусе WPN_POLL_D читаем active_item и счётчик
+-- патронов get_ammo_total. Счётчик УПАЛ - был выстрел (одна пуля или
+-- очередь за опрос - очередь склеит их в живое кольцо стрелка); ВЫРОС -
+-- перезарядка (кольца нет); сменилось оружие - новая база без кольца.
+-- Ключ источника - id стрелка: совпадает с каналами слуха и колбэка,
+-- в очереди всё склеивается. Громкость - от якорей выстрела (глушитель
+-- читается у оружия в руках).
+-- ---------------------------------------------------------------------------
+local WPN_POLL_MS = 200   -- период опроса боезапаса, мс
+local WPN_POLL_D  = 250   -- потолок дальности weapon-колец (KIND_CAP.weapon)
+local wpn_poll_t  = 0     -- таймер опроса
+local wpn_clean_t = 0     -- таймер чистки осиротевших ключей
+local wpn_ammo    = {}    -- [id NPC] = { wid = id оружия, ammo = патронов }
+
+local function shot_poll(now)
+        if not sound_vision_config.mc.npc_shots then return end
+        if now - wpn_poll_t < WPN_POLL_MS then return end
+        wpn_poll_t = now
+        local a = db.actor
+        if not a or not a:alive() then return end
+        local ap = a:position()
+        local L = _G.sound_vision_log
+        local dbg, rate = nil, nil
+        if L and L.on() then dbg, rate = L.dbg, L.rate end
+        local maxd2 = WPN_POLL_D * WPN_POLL_D
+        for id, st in pairs(db.storage) do
+                local o = st and st.object
+                if o and id ~= a:id() then
+                        local ok_m, is_m = pcall(IsStalker, o)
+                        if ok_m and is_m then
+                                local ok_al, alive = pcall(o.alive, o)
+                                if ok_al and alive then
+                                        local ok_p, p = pcall(o.position, o)
+                                        if ok_p and p and p.x then
+                                                local dx, dy, dz = p.x - ap.x, p.y - ap.y, p.z - ap.z
+                                                if dx * dx + dy * dy + dz * dz <= maxd2 then
+                                                        local ok_i, item = pcall(o.active_item, o)
+                                                        if ok_i and item then
+                                                                local ok_s, sec = pcall(item.section, item)
+                                                                if ok_s and type(sec) == "string"
+                                                                        and string.find(sec, "wpn_", 1, true) == 1 then
+                                                                        local ok_a, ammo = pcall(item.get_ammo_total, item)
+                                                                        if ok_a and type(ammo) == "number" then
+                                                                                local ok_w, wid = pcall(item.id, item)
+                                                                                wid = ok_w and wid or 0
+                                                                                local prev = wpn_ammo[id]
+                                                                                if prev and prev.wid == wid
+                                                                                        and ammo < prev.ammo then
+                                                                                        local d = math.sqrt(dx * dx + dy * dy + dz * dz)
+                                                                                        local loud = anchor_loud(
+                                                                                                is_silenced(item) and ANV_SHOT_SIL or ANV_SHOT, d)
+                                                                                        if dbg and rate("shot_" .. tostring(id), 500) then
+                                                                                                dbg("SHOT", "poll: npc=%s ammo %d->%d loud=%.3f d=%.1fm",
+                                                                                                        L.who(id), prev.ammo, ammo, loud, d)
+                                                                                        end
+                                                                                        sound_vision_events.push_event(p.x, p.y, p.z,
+                                                                                                "weapon", id, true, loud, true)
+                                                                                end
+                                                                                wpn_ammo[id] = { wid = wid, ammo = ammo }
+                                                                        elseif dbg and rate("shot_no_ammo_" .. tostring(id), 10000) then
+                                                                                dbg("SHOT", "poll: get_ammo_total unavailable (npc=%s, weapon=%s)",
+                                                                                        L.who(id), tostring(sec))
+                                                                        end
+                                                                else
+                                                                        wpn_ammo[id] = nil       -- в руках не оружие (граната и т.п.)
+                                                                end
+                                                        else
+                                                                wpn_ammo[id] = nil               -- руки пусты (перезарядка/смена)
+                                                        end
+                                                end
+                                        end
+                                else
+                                        wpn_ammo[id] = nil                       -- погиб: база не нужна
+                                end
+                        end
+                end
+        end
+        -- Чистка осиротевших ключей (деспавн, смена уровня).
+        if now - wpn_clean_t >= 5000 then
+                wpn_clean_t = now
+                for wid in pairs(wpn_ammo) do
+                        local st2 = db.storage[wid]
+                        if not (st2 and st2.object) then wpn_ammo[wid] = nil end
+                end
+        end
+end
+
+-- ---------------------------------------------------------------------------
+-- Игрока ЗАДЕЛО (v2.7): гарантированный маркер атаки в момент попадания.
+-- Все прочие каналы могут молчать (ogg-метаданные, отсутствие слушателей),
+-- но Hit у актёра движок вызывает всегда. Сигнатура (anomaly-modding-book):
+--   actor_on_hit_callback(<actor>, <amount>, <vector>, <who>, <bone>),
+-- who - объект, нанёсший удар: у выстрела это стрелок, у гранаты - граната.
+-- Кольцо ставится в его живой позиции (громкость - якорь выстрела); если
+-- стрелок дальше потолка 250 м, кольцо кладётся НА потолок в ту же сторону
+-- (направление то же, а рендер всё равно прибивает дальние кольца к краю
+-- экрана); не разрешился - у игрока. Свои попадания (падение, собственная
+-- граната) не рисуем - серые «own»-кольца и так есть в канале слуха.
+-- ---------------------------------------------------------------------------
+local function on_actor_hit(_, amount, direction, who, bone)
+        if not sound_vision_config.mc.npc_shots then return end
+        local a = db.actor
+        if not a then return end
+        local ap = a:position()
+        local x, y, z = ap.x, ap.y, ap.z
+        local loud = 1
+        local who_id = nil
+        if who then
+                local ok_id, wid = pcall(who.id, who)
+                if ok_id and type(wid) == "number" and wid ~= a:id() then
+                        who_id = wid
+                end
+                local ok_p, p = pcall(who.position, who)
+                if ok_p and p and p.x then
+                        local dx, dy, dz = p.x - ap.x, p.y - ap.y, p.z - ap.z
+                        local d = math.sqrt(dx * dx + dy * dy + dz * dz)
+                        if d > WPN_POLL_D and d > 0.5 then
+                                -- стрелок дальше потолка: кольцо на потолке в ту же сторону
+                                local k = WPN_POLL_D / d
+                                x, y, z = ap.x + dx * k, ap.y + dy * k, ap.z + dz * k
+                                loud = anchor_loud(ANV_SHOT, WPN_POLL_D)
+                        else
+                                x, y, z = p.x, p.y, p.z
+                                loud = anchor_loud(ANV_SHOT, d)
+                        end
+                end
+        end
+        if who_id == nil then return end     -- своё падение / неразрешённый удар
+        local L = _G.sound_vision_log
+        if L and L.on() then
+                L.dbg("SHOT", "actor hit: who=%s loud=%.3f", L.who(who_id), loud)
+        end
+        sound_vision_events.push_event(x, y, z, "weapon", who_id, true, loud, true)
+end
+
+-- ---------------------------------------------------------------------------
 -- Источник 5: шаги самого игрока.
 -- Ванильная сигнатура: (surface:string, power, is_crouching, flags).
 -- На modded exes первый аргумент - объект, поэтому просто не реагируем
@@ -634,6 +807,7 @@ local function on_actor_update(_, dt)
         local now = time_global()
         -- сначала детект (события этого кадра), потом отрисовка
         sound_vision_detect.update(now)
+        shot_poll(now)        -- выстрелы NPC: опрос боезапаса (v2.7)
         pulse_vehicles(now)   -- техника: пульс кольца вертолёта (v2.5)
         sound_vision_render.update()
 end
@@ -663,6 +837,7 @@ local function on_load_state()
         sound_vision_events.clear_all()
         sound_vision_detect.clear()
         for k in pairs(heli_watch) do heli_watch[k] = nil end
+        for k in pairs(wpn_ammo) do wpn_ammo[k] = nil end
         heli_pulse_t = 0
         sound_vision_render.hide_all()
         local L = _G.sound_vision_log
@@ -698,8 +873,9 @@ function on_game_start()
         safe_register("actor_on_first_update", sound_vision_config.refresh_config)
         safe_register("on_option_change", sound_vision_config.refresh_config)
         safe_register("npc_on_hear_callback", on_npc_hear)
-        safe_register("npc_on_weapon_shot_start", on_npc_shot_start)
-        safe_register("npc_on_weapon_reload_start", on_npc_reload_start)
+        safe_register("npc_on_weapon_shot_start", on_npc_shot_start)     -- бонус экзешников
+        safe_register("npc_on_weapon_reload_start", on_npc_reload_start) -- бонус экзешников
+        safe_register("actor_on_hit_callback", on_actor_hit)
         safe_register("anomaly_on_before_activate", on_anomaly_activate)
         safe_register("actor_on_feeling_anomaly", on_actor_feel_anomaly)
         safe_register("physic_object_on_hit_callback", on_physic_hit)
@@ -715,9 +891,10 @@ function on_game_start()
         local L = _G.sound_vision_log
         if L and L.on() then
                 local mc = sound_vision_config.mc
-                L.dbg("INIT", "started: enabled=%s by_loudness=%s loud_th=%.3f max_dist=%dm npc_shots=%s show_own=%s",
-                        tostring(mc.enabled), tostring(mc.by_loudness), mc.loud_th,
-                        mc.max_dist, tostring(mc.npc_shots), tostring(mc.show_own))
+                L.dbg("INIT", "started: enabled=%s by_loudness=%s max_dist=%dm npc_shots=%s (ammo-poll %dms/%dm + actor hit) show_own=%s",
+                        tostring(mc.enabled), tostring(mc.by_loudness),
+                        mc.max_dist, tostring(mc.npc_shots),
+                        WPN_POLL_MS, WPN_POLL_D, tostring(mc.show_own))
         end
 end
 

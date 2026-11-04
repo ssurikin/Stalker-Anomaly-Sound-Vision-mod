@@ -50,11 +50,9 @@
 <string id="ui_mcm_sound_vision_detect_phys_sens_desc"><text>How far an object must move to count as "makes sound". Lower = more sensitive (more rings). Default 12 cm.</text></string>
 <string id="ui_mcm_sound_vision_section_hearing"><text>Hearing (audibility)</text></string>
 <string id="ui_mcm_sound_vision_hearing_by_loudness"><text>Show only audible sounds</text></string>
-<string id="ui_mcm_sound_vision_hearing_by_loudness_desc"><text>Rings appear only for sounds the player would actually hear: loudness comes from the engine's AI hearing (distance falloff and wall occlusion included). Gunshots show far away, footsteps only nearby. Turn off to restore the legacy mode with a single detection radius (the max distance setting).</text></string>
-<string id="ui_mcm_sound_vision_hearing_loud_th"><text>Hearing threshold</text></string>
-<string id="ui_mcm_sound_vision_hearing_loud_th_desc"><text>Minimum loudness at the player for a ring to appear, in 1/1000 of full volume. Higher - fewer distant quiet sounds; lower - more rings. Default 20.</text></string>
-<string id="ui_mcm_sound_vision_detect_npc_shots"><text>Guaranteed NPC shots</text></string>
-<string id="ui_mcm_sound_vision_detect_npc_shots_desc"><text>A shot ring is placed when an NPC actually fires, instead of relying on sound metadata: works for any weapon pack and for a lone shooter with no other NPCs nearby. Requires recent modded exes (present in GAMMA); where the callback is missing, the regular hearing channel still works. Suppressors are respected: silenced shots show at a shorter range.</text></string>
+<string id="ui_mcm_sound_vision_hearing_by_loudness_desc"><text>Since v2.7 every caught sound is shown (no loudness gate), so this only affects world polling: on - per-category range cap, off - the single detection radius. Keep it on.</text></string>
+<string id="ui_mcm_sound_vision_detect_npc_shots"><text>Guaranteed shot channel</text></string>
+<string id="ui_mcm_sound_vision_detect_npc_shots_desc"><text>The red ring is placed by fact: every 0.2 s the ammo counter of each stalker within 250 m is read - if it drops, a shot happened. Works on any build, with any weapon pack, and for a lone shooter with no other NPCs nearby. Also: when you get hit, a ring is placed on the attacker immediately. Suppressors are respected: silenced shots show at a shorter range.</text></string>
 <!-- Debug -->
 <string id="ui_mcm_sound_vision_section_debug"><text>Debug</text></string>
 <string id="ui_mcm_sound_vision_debug_debug_logs"><text>Debug log</text></string>

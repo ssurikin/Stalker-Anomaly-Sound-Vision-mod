@@ -19,7 +19,6 @@ local defaults = {
         enabled     = true,    -- мод включён
         show_own    = false,   -- показывать собственные звуки игрока
         by_loudness = true,    -- слышимость по громкости (как в игре)
-        loud_th     = 20,      -- порог слышимости, промилле громкости (0.02)
         max_dist    = 45,      -- радиус опроса мира / лимит в режиме "по дистанции", м
         lifetime    = 1.2,     -- время жизни волны, сек
         throttle    = 0.3,     -- пауза между волнами одного источника, сек
@@ -37,7 +36,8 @@ local defaults = {
         anm_pulse   = 4,       -- пауза между пульсами гула аномалий, сек
         phys_enable = true,    -- физика: следить за движением объектов
         phys_sens   = 12,      -- порог смещения "объект движется", см
-        npc_shots   = true,    -- гарантированные выстрелы NPC (моддед-экзешники)
+        npc_shots   = true,    -- гарантированный канал выстрелов: опрос боезапаса
+                               -- + кольцо при попадании в игрока
         dbg_types   = false,   -- журнал новых типов звуков в лог игры
         debug_logs  = false,   -- отладочный журнал конвейера (HEAR/GATE/QUEUE/RENDER)
 }
@@ -47,7 +47,6 @@ local opt_group = {
         enabled     = "general",
         show_own    = "general",
         by_loudness = "hearing",
-        loud_th     = "hearing",
         max_dist    = "general",
         lifetime    = "general",
         throttle    = "general",
@@ -111,8 +110,8 @@ function on_mcm_load()
                         { id = "hearing", sh = true, text = "ui_mcm_sound_vision_section_hearing", gr = {
                                 { id = "title_hearing", type = "title", text = "ui_mcm_sound_vision_section_hearing" },
                                 { id = "by_loudness", type = "check", val = 1, def = defaults.by_loudness },
-                                { id = "loud_th", type = "track", val = 2,
-                                        def = defaults.loud_th, min = 5, max = 100, step = 5 },
+                                -- loud_th удалена (v2.7): гейта слышимости больше нет,
+                                -- показывается всё, что поймали каналы
                         } },
                         { id = "size", sh = true, text = "ui_mcm_sound_vision_section_size", gr = {
                                 { id = "title_size", type = "title", text = "ui_mcm_sound_vision_section_size" },

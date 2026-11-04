@@ -23,7 +23,9 @@ local mc = {
         enabled     = true,   -- мод включён
         show_own    = false,  -- показывать собственные звуки игрока
         by_loudness = true,   -- слышимость по громкости (как в игре), иначе по дистанции
-        loud_th     = 0.02,   -- порог слышимости: громкость у игрока, ниже которой кольца нет
+        loud_th     = 0.005, -- ВНУТРЕННИЙ (v2.7): порог «стрелок слышен» при выборе
+                             -- якоря слуха (стрелок vs точка попадания). Гейта
+                             -- слышимости больше нет, в MCM опции нет
         max_dist    = 45,     -- радиус опроса мира / лимит в режиме "по дистанции", м
         lifetime    = 1.2,    -- время жизни волны, сек
         throttle    = 0.3,    -- пауза между волнами одного источника, сек
@@ -41,7 +43,8 @@ local mc = {
         anm_pulse   = 4,      -- пауза между пульсами гула зоны, сек
         phys_enable = true,   -- физика: следить за движением объектов
         phys_sens   = 0.12,   -- порог смещения "объект движется", м
-        npc_shots   = true,   -- гарантированные выстрелы NPC (моддед-экзешники)
+        npc_shots   = true,   -- гарантированный канал выстрелов: опрос боезапаса
+                              -- + кольцо при попадании в игрока
         dbg_types   = false,  -- журнал новых типов звуков в лог игры
         debug_logs  = false,  -- отладочный журнал конвейера (MCM: Отладка)
 }
@@ -52,7 +55,8 @@ local function refresh_config()
         mc.enabled     = sound_vision_mcm.get_config("enabled") ~= false
         mc.show_own    = sound_vision_mcm.get_config("show_own") == true
         mc.by_loudness = sound_vision_mcm.get_config("by_loudness") ~= false
-        mc.loud_th     = math.max(0.002, (tonumber(sound_vision_mcm.get_config("loud_th")) or 20) / 1000)
+        -- loud_th с v2.7 внутренний (0.005): гейт слышимости удалён, порог
+        -- используется только при выборе якоря слуха в sound_vision.
         mc.max_dist    = tonumber(sound_vision_mcm.get_config("max_dist")) or 45
         mc.lifetime    = tonumber(sound_vision_mcm.get_config("lifetime")) or 1.2
         mc.throttle    = tonumber(sound_vision_mcm.get_config("throttle")) or 0.3
