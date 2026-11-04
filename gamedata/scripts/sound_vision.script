@@ -53,6 +53,9 @@
 --   7) actor_on_footstep (ванильный) - шаги самого игрока (выкл. по умолч.)
 --   8) npc_on_weapon_shot_start (моддед-экзешники) - КАЖДЫЙ выстрел NPC:
 --      кольцо ставится по факту стрельбы, независимо от звуковых метаданных
+--      (на сборках без этих колбэков канал подхватывает якорение WPN_*
+--      в on_npc_hear: попадания пуль приходят всегда и ставят метку на
+--      стрелке, см. v2.3)
 --   9) npc_on_weapon_reload_start (моддед-экзешники) - начало перезарядки NPC
 --
 -- Зачем нужны 8 и 9: звук без валидного ogg-комментария получает
@@ -89,6 +92,15 @@
 --     sound_power- громкость у слушателя 0..1: движок уже ослабил звук
 --                  линейно по расстоянию и стенам:
 --                  Power = (1 - dist/max_ai_distance) * volume * occlusion.
+--     sound_position - ТОЧКА ЗВУКА, и у оружия это НЕ стрелок: движок
+--                  привязывает WPN_* к ПУЛЕ - в момент импульса слуха
+--                  (каждые 0.5 с) это позиция снаряда/точка попадания.
+--                  Проверено логом на GAMMA (v2.3): пули, летящие в игрока,
+--                  давали pos в 1.7-3.5 м от игрока (стрелок в ~23 м),
+--                  промахи - pos в 79-85 м ЗА игроком; WPN_shoot от паков
+--                  без ogg-комментариев не приходит вовсе (game_type=0,
+--                  Event_Propagade их не рассылает). Стрелок - who_id
+--                  (источник звука), его живая позиция известна всегда.
 -- Актёр слушателем не отчитывается (CActor::feel_sound_new не диспатчит
 -- в Lua), поэтому мир видим "через уши ИИ"; свои звуки приходят, когда их
 -- слышит кто-то из NPC (who_id == id игрока).
@@ -118,6 +130,37 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                 sound_vision_events.push_event(a:position().x, a:position().y, a:position().z, "own", a:id())
                 return
         end
+        local kind = sound_vision_classify.classify(s_type, who_id)
+        -- Якорь выстрела - СТРЕЛОК, а не точка звука движка (v2.3).
+        -- Для WPN_* движок отдаёт pos = позиция ПУЛИ (см. блок сигнатуры выше):
+        -- кольца вспыхивали у ног игрока (пуля рядом) или отклонялись гейтом
+        -- (промах улетел за спину и громкость обрушалась обратным квадратом).
+        -- who_id - источник звука, его живая позиция известна всегда: якоримся
+        -- на неё и громкость пересчитываем до стрелка. Работает с любым паком:
+        -- ни звука, ни секции оружия знать не надо. Позиции гранат/взрывов
+        -- (строки без префикса WPN_) не трогаем - там точка взрыва полезнее,
+        -- а WPN_shoot/WPN_reload у валидных стволов и так стоят на стрелке
+        -- (сдвиг < 2 м - перекладки нет, лог без "anchored").
+        local anch = pos          -- куда ставим кольцо
+        local anch_from = nil     -- дистанция до точки движка (для строки журнала)
+        if kind == "weapon" and type(s_type) == "string" and type(who_id) == "number"
+                and string.find(string.lower(s_type), "wpn", 1, true) == 1 then
+                local ok, obj = pcall(function() return level.object_by_id(who_id) end)
+                if ok and obj then
+                        local ok2, ep = pcall(obj.position, obj)
+                        if ok2 and ep and ep.x then
+                                local p0 = a:position()
+                                local ex, ey, ez = ep.x - p0.x, ep.y - p0.y, ep.z - p0.z
+                                local px, py, pz = pos.x - p0.x, pos.y - p0.y, pos.z - p0.z
+                                local d_em = math.sqrt(ex * ex + ey * ey + ez * ez)
+                                local d_en = math.sqrt(px * px + py * py + pz * pz)
+                                if math.abs(d_em - d_en) > 2 then
+                                        anch = ep
+                                        anch_from = d_en
+                                end
+                        end
+                end
+        end
         -- Восстановление громкости у игрока из якоря ИИ-наблюдения:
         -- на dl метрах от источника движок насчитал power; громкость падает
         -- обратным квадратом (дБ-модель расхождения фронта), значит у игрока
@@ -125,13 +168,17 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
         -- дальше - тише. Модель линейного затухания движка консервативнее,
         -- поэтому на большой дальности мы скорее ПОКАЖЕМ слышимый звук, чем
         -- спрячем (для accessibility это правильная сторона ошибки).
+        -- dl здесь - расстояние слушатель<->пуля (движок привязал событие к
+        -- снаряду), dp - игрок<->стрелок: приближение одного порядка, для
+        -- решения «видно/не видно» достаточно (проверено логом GAMMA:
+        -- 0.013 -> 0.175 на тех же событиях).
         local loud = nil
         local dl, dp
         if type(power) == "number" and type(dist) == "number" and power > 0 then
                 dl = math.sqrt(dist)                   -- в xr_hear: distance_to_sqr!
                 if dl < 0.5 then dl = 0.5 end          -- слушатель вплотную
                 local p = a:position()
-                local dx, dy, dz = pos.x - p.x, pos.y - p.y, pos.z - p.z
+                local dx, dy, dz = anch.x - p.x, anch.y - p.y, anch.z - p.z
                 dp = math.sqrt(dx * dx + dy * dy + dz * dz)
                 if dp < 0.5 then
                         loud = 1                        -- источник у самого игрока
@@ -140,19 +187,20 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                         if loud > 1 then loud = 1 end
                 end
         end
-        local kind = sound_vision_classify.classify(s_type, who_id)
         -- Журнал (MCM: Отладка): событие слуха ПОЙМАНО; дальше решение очереди
         -- пишут GATE/QUEUE, вывод кольца - RENDER (см. sound_vision_log).
         if L and L.on() then
-                L.dbg("HEAR", "caught: s_type='%s' who=%s dl=%s p=%s -> %s loud=%s dp=%s",
+                L.dbg("HEAR", "caught: s_type='%s' who=%s dl=%s p=%s -> %s loud=%s dp=%s%s",
                         tostring(s_type), L.who(who_id),
                         dl and string.format("%.1fm", dl) or "?",
                         type(power) == "number" and string.format("%.3f", power) or "?",
                         tostring(kind),
                         loud and string.format("%.3f", loud) or "n/a",
-                        dp and string.format("%.1fm", dp) or "?")
+                        dp and string.format("%.1fm", dp) or "?",
+                        anch_from and string.format(" (anchored: pos %.0fm -> shooter %s)",
+                                anch_from, dp and string.format("%.0fm", dp) or "?") or "")
         end
-        sound_vision_events.push_event(pos.x, pos.y, pos.z, kind, who_id, nil, loud)
+        sound_vision_events.push_event(anch.x, anch.y, anch.z, kind, who_id, nil, loud)
 end
 
 -- Виртуальные якоря громкости для глухих колбэков (без аудио-данных):
