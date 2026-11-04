@@ -41,6 +41,8 @@ local mc = {
         anm_pulse   = 4,      -- пауза между пульсами гула зоны, сек
         phys_enable = true,   -- физика: следить за движением объектов
         phys_sens   = 0.12,   -- порог смещения "объект движется", м
+        npc_shots   = true,   -- гарантированные выстрелы NPC (моддед-экзешники)
+        dbg_types   = false,  -- журнал новых типов звуков в лог игры
 }
 
 -- Перечитать настройки из MCM. Колбэк on_option_change приходит во все
@@ -67,6 +69,8 @@ local function refresh_config()
         mc.anm_pulse   = math.max(2, tonumber(sound_vision_mcm.get_config("anm_pulse")) or 4)
         mc.phys_enable = sound_vision_mcm.get_config("phys_enable") ~= false
         mc.phys_sens   = math.max(0.02, (tonumber(sound_vision_mcm.get_config("phys_sens")) or 12) / 100)
+        mc.npc_shots   = sound_vision_mcm.get_config("npc_shots") ~= false
+        mc.dbg_types   = sound_vision_mcm.get_config("dbg_types") == true
 end
 
 -- ============================================================================

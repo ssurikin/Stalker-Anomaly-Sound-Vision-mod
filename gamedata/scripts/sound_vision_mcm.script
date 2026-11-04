@@ -37,6 +37,8 @@ local defaults = {
         anm_pulse   = 4,       -- пауза между пульсами гула аномалий, сек
         phys_enable = true,    -- физика: следить за движением объектов
         phys_sens   = 12,      -- порог смещения "объект движется", см
+        npc_shots   = true,    -- гарантированные выстрелы NPC (моддед-экзешники)
+        dbg_types   = false,   -- журнал новых типов звуков в лог игры
 }
 
 -- имя опции -> группа в дереве MCM (нужно для пути ui_mcm.get)
@@ -62,6 +64,8 @@ local opt_group = {
         anm_pulse   = "detect",
         phys_enable = "detect",
         phys_sens   = "detect",
+        npc_shots   = "detect",
+        dbg_types   = "detect",
 }
 
 -- Единая точка чтения настроек: из MCM, а если его нет - из defaults.
@@ -137,6 +141,8 @@ function on_mcm_load()
                                 { id = "phys_enable", type = "check", val = 1, def = defaults.phys_enable },
                                 { id = "phys_sens",   type = "track", val = 2,
                                         def = defaults.phys_sens, min = 5, max = 50, step = 1 },
+                                { id = "npc_shots",   type = "check", val = 1, def = defaults.npc_shots },
+                                { id = "dbg_types",   type = "check", val = 1, def = defaults.dbg_types },
                         } },
                 }
         }

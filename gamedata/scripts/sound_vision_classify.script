@@ -2,19 +2,33 @@
 -- sound_vision_classify: классификация источников звука по типу
 --
 -- Ответственность (SRP): сопоставить тип звука (строка из ogg-комментариев,
--- напр. "WPN_hit", "MST_attack", "NPC_step"; поддержана и битовая маска
--- движка) категории "weapon"/"voice"/"step"/"monster"/"anomaly"/"other"/
--- "own", дать цвет категории и ответить, включена ли категория в настройках.
+-- напр. "WPN_hit", "MST_attack"; поддержана и битовая маска движка) категории
+-- "weapon"/"voice"/"step"/"monster"/"anomaly"/"other"/"own", дать цвет
+-- категории и ответить, включена ли категория в настройках.
 -- Логики обнаружения, хранения и отрисовки здесь нет.
 --
--- Зависимости: sound_vision_config (лениво, только для can_show: модуль
--- классификации грузится раньше конфига по алфавиту).
+-- Адаптивный пул типов (v2.1). Строки типов у модпаков не нормированы: пак
+-- присылает что угодно (без уточнения - WPN/ITM/MST, экзотика - NIL), поэтому
+-- жёсткий список невозможен. Порядок распознавания новой строки:
+--   1) sound_vision_overrides.map - ручные переопределения пользователя
+--      (правятся под любую сборку без изменения кода мода);
+--   2) эвристика по подстрокам (wpn/mst/step/talk/...) - покрывает ваниль
+--      и большинство паков;
+--   3) вывод по источнику: нераспознанный звук мутанта - "monster";
+--   4) иначе нейтральный "other".
+-- Результат кэшируется в реестре (registry): строка распознаётся один раз.
+-- При включённом MCM-журнале типов каждая новая строка пишется в лог игры -
+-- так собирается полный список типов конкретной сборки для overrides.
+--
+-- Зависимости: sound_vision_config, sound_vision_overrides (оба лениво,
+-- через _G: классификация вызывается раньше загрузки соседей по алфавиту).
 --
 -- Экспорт:
---   classify(s_type) - тип/маска -> категория
---   can_show(kind)   - категория -> разрешена ли текущими настройками
---   color_of(kind)   - категория -> {r,g,b} для БЕЛОЙ текстуры
---                      (итог = пиксель текстуры * SetTextureColor / 255)
+--   classify(s_type [, who_id]) - тип/маска -> категория
+--   can_show(kind)              - категория -> разрешена ли текущими настройками
+--   color_of(kind)              - категория -> {r,g,b} для БЕЛОЙ текстуры
+--                                 (итог = пиксель текстуры * SetTextureColor / 255)
+--   registry()                  - реестр виденных типов {[строка] = {kind, n}}
 -- ============================================================================
 
 -- цвет {r,g,b} на БЕЛОЙ текстуре: итог = пиксель текстуры * SetTextureColor / 255
@@ -47,37 +61,94 @@ local function str_find(s, sub)
         return string.find(s, sub, 1, true) ~= nil
 end
 
-local function classify(st)
+-- Эвристика по подстрокам. Возвращает категорию или nil, если строка ни на
+-- что не похожа (тогда работает вывод по источнику).
+local function by_keywords(s)
+        if str_find(s, "wpn") or str_find(s, "weapon") or str_find(s, "shoot")
+                or str_find(s, "shot") or str_find(s, "bullet") or str_find(s, "grenade")
+                or str_find(s, "explosion") then
+                return "weapon"
+        end
+        if str_find(s, "mst") or str_find(s, "monster") then
+                return "monster"
+        end
+        if str_find(s, "voice") or str_find(s, "talk") or str_find(s, "speech")
+                or str_find(s, "phrase") or str_find(s, "dialog") or str_find(s, "scream")
+                or str_find(s, "pain") or str_find(s, "die") or str_find(s, "greet")
+                or str_find(s, "hello") or str_find(s, "threat") then
+                return "voice"
+        end
+        if str_find(s, "step") or str_find(s, "walk") or str_find(s, "jump")
+                or str_find(s, "land") then
+                return "step"
+        end
+        if str_find(s, "anom") or str_find(s, "zone") then
+                return "anomaly"
+        end
+        if str_find(s, "obj") or str_find(s, "collid") or str_find(s, "break")
+                or str_find(s, "drop") or str_find(s, "door") or str_find(s, "physic")
+                or str_find(s, "impact") or str_find(s, "hit") then
+                return "other"
+        end
+        return nil
+end
+
+-- Переопределения пользователя. Лениво и под pcall: файла может не быть в
+-- сборке - штатная ситуация, пустая карта.
+local ov_map
+local function overrides()
+        if ov_map then return ov_map end
+        local ok, mod = pcall(function() return _G.sound_vision_overrides end)
+        ov_map = (ok and mod and type(mod.map) == "table") and mod.map or {}
+        return ov_map
+end
+
+-- Вывод по источнику: нераспознанный звук мутанта - почти наверняка его
+-- голос/шаг/атака. От сталкера не угадываем (действия слишком разные) -
+-- останется нейтральный "other".
+local function by_who(who_id)
+        if who_id == nil then return nil end
+        local ok, obj = pcall(function() return level.object_by_id(who_id) end)
+        if not ok or not obj then return nil end
+        local ok2, is_m = pcall(IsMonster, obj)
+        if ok2 and is_m then return "monster" end
+        return nil
+end
+
+local registry_t = {}   -- [строка типа] = { kind = категория, n = счётчик }
+local logged = {}       -- строки, уже попавшие в журнал (пишутся один раз)
+
+-- Журнал новых типов: MCM-опция dbg_types; printf есть в базовых скриптах
+-- Anomaly, но не во всех сборках - оба обращения под страховкой.
+local function log_new_type(st, kind)
+        local cmod = _G.sound_vision_config
+        local mc = cmod and cmod.mc
+        if not (mc and mc.dbg_types) then return end
+        if logged[st] then return end
+        logged[st] = true
+        local pf = _G.printf
+        if pf then
+                pcall(pf, "[Sound Vision] s_type '%s' -> %s", tostring(st), tostring(kind))
+        end
+end
+
+local function classify(st, who_id)
         if st == nil then return "other" end
         if type(st) == "string" then
-                local s = string.lower(st)
-                if str_find(s, "wpn") or str_find(s, "weapon") or str_find(s, "shoot")
-                        or str_find(s, "shot") or str_find(s, "bullet") or str_find(s, "grenade")
-                        or str_find(s, "explosion") then
-                        return "weapon"
+                -- реестр: строка распознаётся один раз, дальше - кэш
+                local hit = registry_t[st]
+                if hit then
+                        hit.n = hit.n + 1
+                        return hit.kind
                 end
-                if str_find(s, "mst") or str_find(s, "monster") then
-                        return "monster"
-                end
-                if str_find(s, "voice") or str_find(s, "talk") or str_find(s, "speech")
-                        or str_find(s, "phrase") or str_find(s, "dialog") or str_find(s, "scream")
-                        or str_find(s, "pain") or str_find(s, "die") or str_find(s, "greet")
-                        or str_find(s, "hello") or str_find(s, "threat") then
-                        return "voice"
-                end
-                if str_find(s, "step") or str_find(s, "walk") or str_find(s, "jump")
-                        or str_find(s, "land") then
-                        return "step"
-                end
-                if str_find(s, "anom") or str_find(s, "zone") then
-                        return "anomaly"
-                end
-                if str_find(s, "obj") or str_find(s, "collid") or str_find(s, "break")
-                        or str_find(s, "drop") or str_find(s, "door") or str_find(s, "physic")
-                        or str_find(s, "impact") or str_find(s, "hit") then
-                        return "other"
-                end
-                return "other"
+                local kind = overrides()[st]
+                if kind == nil then kind = overrides()[string.lower(st)] end
+                if kind == nil then kind = by_keywords(string.lower(st)) end
+                if kind == nil then kind = by_who(who_id) end
+                if kind == nil then kind = "other" end
+                registry_t[st] = { kind = kind, n = 1 }
+                log_new_type(st, kind)
+                return kind
         end
         if type(st) == "number" then
                 -- классическая битовая маска ESoundTypes (fallback)
@@ -125,4 +196,5 @@ _G.sound_vision_classify = {
         classify = classify,
         can_show = can_show,
         color_of = function(kind) return KIND_COLOR[kind] or KIND_COLOR.other end,
+        registry = function() return registry_t end,
 }

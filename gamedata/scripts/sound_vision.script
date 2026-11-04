@@ -48,6 +48,17 @@
 --   5) actor_on_item_drop (ванильный) - игрок выбросил предмет (стук)
 --   6) sound_vision_detect - опрос мира (4 Гц): шаги, физика, гул зон, болт
 --   7) actor_on_footstep (ванильный) - шаги самого игрока (выкл. по умолч.)
+--   8) npc_on_weapon_shot_start (моддед-экзешники) - КАЖДЫЙ выстрел NPC:
+--      кольцо ставится по факту стрельбы, независимо от звуковых метаданных
+--   9) npc_on_weapon_reload_start (моддед-экзешники) - начало перезарядки NPC
+--
+-- Зачем нужны 8 и 9: звук без валидного ogg-комментария получает
+-- game_type = 0 (SoundRender_Source.cpp, конструктор) и движок его ИИ
+-- вообще не рассылает (Event_Propagade требует g_type != 0), а самозвуки
+-- мотиватор пропускает - у части паков оружия колбэк слуха молчит, хотя
+-- игрок звук слышит. Колбэки 8/9 добавлены в xray-monolith 2026-06-03
+-- (выстрелы) и 2026-07-18 (перезарядка); на экзешниках без них safe_register
+-- молча пропускает регистрацию и остаётся канал слуха (источник 1).
 --
 -- Сигнатуры и паттерны взяты из:
 --   robe127.github.io/stalker-anomaly-modding-guide (callbacks-reference)
@@ -109,7 +120,7 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                 end
         end
         sound_vision_events.push_event(pos.x, pos.y, pos.z,
-                sound_vision_classify.classify(s_type), who_id, nil, loud)
+                sound_vision_classify.classify(s_type, who_id), who_id, nil, loud)
 end
 
 -- Виртуальные якоря громкости для глухих колбэков (без аудио-данных):
@@ -136,6 +147,53 @@ local function anchor_loud(anv, dp)
         local pp = anv[2] * (anv[1] / dp) * (anv[1] / dp)
         if pp > 1 then pp = 1 end
         return pp
+end
+
+-- ---------------------------------------------------------------------------
+-- Гарантированный канал выстрелов NPC (моддед-экзешники, см. шапку).
+-- Сигнатура (callbacks_gameobject.script):
+--   npc_on_weapon_shot_start(npc, weapon)    - на каждый выстрел сталкера
+--     (per-shot: WeaponDispersion.cpp -> CAI_Stalker::on_weapon_shot_start);
+--   npc_on_weapon_reload_start(npc, weapon)  - начало перезарядки.
+-- Актёру колбэк не приходит (диспатчит только CAI_Stalker, не CActor).
+-- Громкость - от виртуальных якорей (единая модель с detect): без глушителя
+-- выстрел слышен до ~150 м (дальше режет HEAR_CAP очереди), с глушителем
+-- до ~77 м, перезарядка до ~40 м. Ключ антиспама - id стрелка: каналы слуха
+-- и выстрела используют одно пространство ключей и в очереди склеиваются,
+-- дублей колец нет.
+-- ---------------------------------------------------------------------------
+local ANV_SHOT     = { 45, 0.60 }  -- выстрел без глушителя
+local ANV_SHOT_SIL = { 20, 0.30 }  -- выстрел с глушителем
+local ANV_RELOAD   = { 12, 0.22 }  -- перезарядка
+
+-- Тихий ли ствол: глушитель пристёгнут (weapon_is_silencer) или интегрирован
+-- в конструкцию (weapon_silencer_status == 2, как у ВСС/Вал). На старых
+-- экзешниках методы могут отсутствовать - pcall, при сомнении громкий якорь.
+local function is_silenced(weapon)
+        if not weapon then return false end
+        local ok, st = pcall(weapon.weapon_silencer_status, weapon)
+        if ok and st == 2 then return true end
+        local ok2, attached = pcall(weapon.weapon_is_silencer, weapon)
+        return ok2 and attached == true
+end
+
+local function on_npc_shot_start(npc, weapon)
+        if not sound_vision_config.mc.npc_shots then return end
+        if not npc then return end
+        local ok, p = pcall(npc.position, npc)
+        if not (ok and p and p.x) then return end
+        local loud = anchor_loud(is_silenced(weapon) and ANV_SHOT_SIL or ANV_SHOT,
+                dist_to_actor(npc))
+        sound_vision_events.push_event(p.x, p.y, p.z, "weapon", npc:id(), nil, loud)
+end
+
+local function on_npc_reload_start(npc, weapon)
+        if not sound_vision_config.mc.npc_shots then return end
+        if not npc then return end
+        local ok, p = pcall(npc.position, npc)
+        if not (ok and p and p.x) then return end
+        local loud = anchor_loud(ANV_RELOAD, dist_to_actor(npc))
+        sound_vision_events.push_event(p.x, p.y, p.z, "weapon", "rl" .. npc:id(), nil, loud)
 end
 
 -- Источник 2: колбэки аномалий (ванильные, см. callbacks-reference).
@@ -255,6 +313,8 @@ function on_game_start()
         safe_register("actor_on_first_update", sound_vision_config.refresh_config)
         safe_register("on_option_change", sound_vision_config.refresh_config)
         safe_register("npc_on_hear_callback", on_npc_hear)
+        safe_register("npc_on_weapon_shot_start", on_npc_shot_start)
+        safe_register("npc_on_weapon_reload_start", on_npc_reload_start)
         safe_register("anomaly_on_before_activate", on_anomaly_activate)
         safe_register("actor_on_feeling_anomaly", on_actor_feel_anomaly)
         safe_register("physic_object_on_hit_callback", on_physic_hit)
@@ -271,12 +331,14 @@ end
 -- ---------------------------------------------------------------------------
 -- Отладочный доступ (только чтение; для диагностики и тестов):
 -- sound_vision_debug.events - текущая очередь событий, .classify(s_type) -
--- классификатор, .push_event(...) - принудительно создать событие.
+-- классификатор, .types() - реестр виденных типов, .push_event(...) -
+-- принудительно создать событие.
 -- Явный _G-экспорт: интерфейс доступен как обычный глобал из консоли/тестов.
 -- ---------------------------------------------------------------------------
 _G.sound_vision_debug = {
         events = sound_vision_events.list,
         push_event = sound_vision_events.push_event,
         classify = sound_vision_classify.classify,
+        types    = sound_vision_classify.registry,
         refresh_config = sound_vision_config.refresh_config,
 }
