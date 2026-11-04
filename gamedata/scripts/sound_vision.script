@@ -1,5 +1,5 @@
 -- ============================================================================
--- Sound Vision v1.2
+-- Sound Vision v1.3
 -- Визуальная индикация источников звука для слабослышащих игроков.
 --
 -- Что делает: рисует на экране расходящиеся кольца в точке любого звука
@@ -28,8 +28,10 @@
 -- Отрисовка: пул CUIStatic-колец (белая текстура ui\sv_ring.dds + цвет через
 -- SetTextureColor), позиция - game.world2ui() (мир -> координаты HUD) для
 -- источников в кадре. Источники за спиной и вне кадра НЕ зеркалятся: кольцо
--- прижимается к краю экрана на своей половине (как квестовые метки в
--- современных играх), анимация - расширение и затухание кольца.
+-- плавно доезжает до края экрана на своей половине (как квестовые метки в
+-- современных играх) и так же плавно возвращается при входе источника в кадр.
+-- Размер кольца зависит только от дистанции до источника и в обоих состояниях
+-- (в кадре / у края) одинаков. Анимация - расширение и затухание кольца.
 --
 -- Сигнатуры и паттерны взяты из:
 --   robe127.github.io/stalker-anomaly-modding-guide (callbacks-reference)
@@ -530,13 +532,17 @@ end
 -- Границы экрана в UI-пикселях: (0..2*cx, 0..2*cy). Калибровка не зависит
 -- от дистанции и направления взгляда; пересчитывается при смене разрешения.
 --
--- Возвращает: sx, sy, edge (true = прижато к краю экрана) | nil
+-- Возвращает: sx, sy, edge (true = прижато к краю экрана) | nil. Возвращаемые
+-- точки - "якоря" двух состояний: вызывающий (update_rings) плавно
+-- интерполирует между ними по времени, поэтому переход экран <-> край без
+-- мгновенных скачков позиции.
 -- ---------------------------------------------------------------------------
 local tmp_v3 = vector()
 local tmp_v2 = vector2()
 local use_w2u3 = true
 local OFFSCREEN = -9000
 local PIN_MARGIN = 40          -- отступ прижатого кольца от края экрана, UI-пикселей
+local EDGE_BLEND_TAU = 120     -- постоянная времени сглаживания перехода "экран <-> край", мс
 
 local function probe_world2ui()
         local ok = pcall(game.world2ui, tmp_v3:set(0, 0, 0), false, false)
@@ -685,6 +691,10 @@ function SoundVisionHUD:update_rings()
         local rpp = mc.rings
         local idx = 0
         local cnt = math.min(#events, max_events())
+        -- кадр-дельта для сглаживания перехода "экран <-> край"
+        local dt = now - (self.prev_ms or now)
+        self.prev_ms = now
+        if dt < 0 or dt > 1000 then dt = 1000 end      -- пауза/фриз: доезжаем мгновенно
         for ei = 1, cnt do
                 local e = events[ei]
                 local age = now - e.t
@@ -694,8 +704,44 @@ function SoundVisionHUD:update_rings()
                         local sx, sy, edge = to_screen(e.x, e.y, e.z, e)
                         if sx then
                                 local col = KIND_COLOR[e.kind] or KIND_COLOR.other
+                                -- Размер зависит ТОЛЬКО от дистанции до источника и одинаков
+                                -- в обоих состояниях (в кадре / у края) - без скачков.
                                 local base = mc.size_px * e.scale
-                                if edge then base = base * 0.55 end
+                                -- Экранный якорь: живая проекция world2ui; вне кадра -
+                                -- последняя валидная (замороженная) точка ухода с экрана.
+                                local ax, ay
+                                if edge then
+                                        -- пин поджимаем так, чтобы кольцо полного размера
+                                        -- не обрезалось краем экрана
+                                        if cal then
+                                                local hx = math.min(base * 0.525, cal.cx)
+                                                local hy = math.min(base * 0.525, cal.cy)
+                                                if sx < hx then sx = hx elseif sx > cal.cx * 2 - hx then sx = cal.cx * 2 - hx end
+                                                if sy < hy then sy = hy elseif sy > cal.cy * 2 - hy then sy = cal.cy * 2 - hy end
+                                        end
+                                        ax, ay = e.last_sx or sx, e.last_sy or sy
+                                        e.pin_x, e.pin_y = sx, sy
+                                else
+                                        ax, ay = sx, sy
+                                        e.last_sx, e.last_sy = sx, sy
+                                end
+                                -- Краевой якорь: живой пин у края; в кадре - последний пин.
+                                local ex, ey = e.pin_x or ax, e.pin_y or ay
+                                -- Плавный переход: blend 0 = кольцо в кадре, 1 = у края.
+                                -- Экспоненциальное сглаживание по времени даёт "доезд" до
+                                -- края при уходе источника из кадра и обратный доезд при
+                                -- возврате, без мгновенных скачков позиции.
+                                local target = edge and 1 or 0
+                                local b = e.blend
+                                if b == nil then
+                                        b = target             -- первое появление - сразу в нужном состоянии
+                                elseif b ~= target then
+                                        b = b + (target - b) * (1 - math.exp(-dt / EDGE_BLEND_TAU))
+                                        if math.abs(target - b) < 0.01 then b = target end
+                                end
+                                e.blend = b
+                                local px = ax + (ex - ax) * b
+                                local py = ay + (ey - ay) * b
                                 for r = 1, rpp do
                                         idx = idx + 1
                                         if idx <= POOL then
@@ -705,15 +751,11 @@ function SoundVisionHUD:update_rings()
                                                         local s = base * (0.55 + 0.5 * k)
                                                         local al = mc.opacity * (1 - k)
                                                         al = al * al            -- плавнее гаснет к концу
-                                                        if edge then al = al * 0.75 end
                                                         if al > 0.03 then
                                                                 el:Show(true)
-                                                                if edge then
-                                                                        -- пин: (sx,sy) - ЦЕНТР кольца, чтобы не вылезало за край
-                                                                        el:SetWndPos(tmp_v2:set(sx - s * 0.5, sy - s * 0.5))
-                                                                else
-                                                                        el:SetWndPos(tmp_v2:set(sx, sy))
-                                                                end
+                                                                -- (px,py) - ЦЕНТР кольца в обоих состояниях:
+                                                                -- нет сдвига на пол-кольца при переходе
+                                                                el:SetWndPos(tmp_v2:set(px - s * 0.5, py - s * 0.5))
                                                                 if self.can_resize then
                                                                         el:SetWndSize(tmp_v2:set(s, s))
                                                                 end
@@ -790,6 +832,12 @@ end
 local function on_res_changed()
         cal = nil                 -- UI-пространство сменилось: перекалибровка
         cal_next_try = 0
+        -- сглаживание хранится в старых UI-пикселях - сбрасываем, чтобы кольца
+        -- не "доезжали" из несуществующих координат
+        for i = 1, #events do
+                local e = events[i]
+                e.blend, e.last_sx, e.last_sy, e.pin_x, e.pin_y = nil, nil, nil, nil, nil
+        end
         if hud then hud:hide_all() end
 end
 
