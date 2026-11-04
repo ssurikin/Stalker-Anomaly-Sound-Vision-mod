@@ -41,6 +41,19 @@
 -- (KIND_CAP в sound_vision_events), чтобы пропускать всё, что слышит якорь
 -- ANV_SHOT (до ~246 м).
 --
+-- Движковый факт -> кольцо (v2.7). «Слышимость как в игре» заменена на
+-- контракт доступности: всё, что движок САМ донёс до мода по каналу слуха
+-- (npc_on_hear_callback - звук прошёл ИИ-фильтр дистанции и глухости стен)
+-- или канала выстрелов (npc_on_weapon_shot_start - выстрел случился по факту),
+-- показывается ВСЕГДА, без порога громкости и без антиспама (у weapon -
+-- склейка по стрелку и так дедуплицирует копии от разных ИИ-слушателей).
+-- Игрок с глухотой должен видеть каждый звук, который движок разослал.
+-- Weapon-кольца защищены от вытеснения из очереди: при переполнении
+-- выталкивается самое старое НЕ-weapon событие (шаги/физика/гул зон),
+-- а не красная метка (см. sound_vision_events). Порог loud_th и антиспам
+-- остались только у опроса мира (шаги/физика/гул зон) - там громкость
+-- наша модель, а не движковый факт.
+--
 -- Архитектура (SRP: один модуль - одна ответственность, зависимости
 -- однонаправленные, связывание ленивое через глобальные таблицы модулей):
 --   sound_vision_config     - настройки (кэш значений MCM);
@@ -250,7 +263,8 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                                 tostring(s_type),
                                 type(power) == "number" and string.format("%.3f", power) or "?")
                 end
-                sound_vision_events.push_event(a:position().x, a:position().y, a:position().z, "own", a:id())
+                sound_vision_events.push_event(a:position().x, a:position().y, a:position().z,
+                        "own", a:id(), nil, nil, true)
                 return
         end
         local kind = sound_vision_classify.classify(s_type, who_id)
@@ -430,7 +444,11 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                         dp and string.format("%.1fm", dp) or "?",
                         extra or "")
         end
-        sound_vision_events.push_event(anch.x, anch.y, anch.z, kind, who_id, nil, loud)
+        -- push_event: fact=true (движковый факт - показываем без порога,
+        -- v2.7); weapon-события идут с force=true - склейка по стрелку
+        -- дедуплицирует копии от разных ИИ-слушателей, антиспам им не нужен.
+        sound_vision_events.push_event(anch.x, anch.y, anch.z, kind, who_id,
+                kind == "weapon", loud, true)
 end
 
 -- ---------------------------------------------------------------------------
@@ -474,7 +492,7 @@ local function on_npc_shot_start(npc, weapon)
                         string.format("%.3f", loud),
                         d and string.format("%.1fm", d) or "?")
         end
-        sound_vision_events.push_event(p.x, p.y, p.z, "weapon", npc:id(), nil, loud)
+        sound_vision_events.push_event(p.x, p.y, p.z, "weapon", npc:id(), true, loud, true)
 end
 
 local function on_npc_reload_start(npc, weapon)
@@ -496,7 +514,7 @@ local function on_npc_reload_start(npc, weapon)
                         L.who(npc:id()), string.format("%.3f", loud),
                         d and string.format("%.1fm", d) or "?")
         end
-        sound_vision_events.push_event(p.x, p.y, p.z, "weapon", "rl" .. npc:id(), nil, loud)
+        sound_vision_events.push_event(p.x, p.y, p.z, "weapon", "rl" .. npc:id(), nil, loud, true)
 end
 
 -- Источник 2: колбэки аномалий (ванильные, см. callbacks-reference).

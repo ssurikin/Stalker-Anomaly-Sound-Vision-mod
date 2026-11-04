@@ -25,9 +25,12 @@
 -- грузятся позже по алфавиту, разрешаются при первом вызове).
 --
 -- Экспорт:
---   push_event(x, y, z, kind, who, force, loud) - событие в мировой точке
---                                           (weapon-события одного источника
---                                           склеиваются в живое кольцо)
+--   push_event(x, y, z, kind, who, force, loud, fact) - событие в мировой
+--                                           точке; fact - движковый факт
+--                                           (канал слуха/выстрелов): показывается
+--                                           без порога громкости (weapon-события
+--                                           одного источника склеиваются в живое
+--                                           кольцо)
 --   push_object(obj, kind, who, force, loud)    - событие в позиции объекта
 --                                           (DRY: единая pcall-обёртка obj:position())
 --   list                                  - живая очередь событий (НЕ мутировать
@@ -44,6 +47,18 @@
 -- пишется в лог строкой QUEUE (с id события), каждое отклонение - строкой
 -- GATE с причиной: below threshold / too far / no loudness data / throttle /
 -- category off / mod disabled. Журнал ведёт sound_vision_log.
+--
+-- Контракт «движковый факт -> кольцо» (v2.7). Всё, что движок САМ донёс до
+-- Lua (npc_on_hear_callback - звук прошёл ИИ-фильтр дистанции и глухости
+-- стен; npc_on_weapon_shot_start - выстрел случился), показывается ВСЕГДА,
+-- без порога громкости (флаг fact). Игрок с глухотой должен видеть каждый
+-- звук, который движок разослал по ИИ-каналу. Порог loud_th остаётся только
+-- для событий опроса мира (шаги/физика/гул зон) - там громкость НАША модель
+-- (виртуальные якоря), движок ничего не сообщал. Вторая половина контракта:
+-- weapon-кольца защищены от вытеснения - при переполнении очередь жертвует
+-- самым старым НЕ-weapon событием (шаги/физика/гул), и только если очередь
+-- целиком из weapon - самым старым weapon. Антиспам на weapon не действует:
+-- копии одного звука от разных ИИ-слушателей склеиваются в живое кольцо.
 -- ============================================================================
 
 local POOL = 32        -- всего колец на экране (XML: ring_1..ring_32)
@@ -92,7 +107,7 @@ end
 -- действует legacy-гейт по дистанции, как в v1.x).
 -- Каждое решение пишется в журнал (GATE - отказ с причиной, QUEUE - приём),
 -- частотный фильтр не даёт затопить лог повторами одного источника.
-local function push_event(x, y, z, kind, who, force, loud)
+local function push_event(x, y, z, kind, who, force, loud, fact)
         init()
         if not cfg or not can_show then return end
         local L = _G.sound_vision_log
@@ -126,7 +141,22 @@ local function push_event(x, y, z, kind, who, force, loud)
         local d = math.sqrt(d2)
         -- Гейт слышимости. loud считается отправителем (движковые события -
         -- через якорь ИИ-наблюдения, опрос мира - через виртуальные якоря).
-        if cfg.by_loudness and loud ~= nil then
+        -- v2.7: движковый факт (канал слуха/выстрелов, fact=true) показывается
+        -- ВСЕГДА - движок уже отфильтровал звук по дистанции ИИ и глухости
+        -- стен, порог loud_th к нему не применяется. Единственное ограничение
+        -- - потолок дальности категории (защита от межкартовых дистанций).
+        -- Порог действует только на события опроса мира - там громкость
+        -- наша модель (виртуальные якоря), движок ничего не сообщал.
+        local cap_d = KIND_CAP[kind] or HEAR_CAP
+        if fact then
+                if d > cap_d then
+                        if dbg and rate("cap_" .. tostring(who or kind), 1000) then
+                                dbg("GATE", "rejected (too far): kind=%s who=%s d=%.0fm > %dm loud=%s",
+                                        tostring(kind), tostring(who), d, cap_d, fmt_loud(loud))
+                        end
+                        return
+                end
+        elseif cfg.by_loudness and loud ~= nil then
                 if loud < cfg.loud_th then
                         if dbg and rate("th_" .. tostring(who or kind), 1000) then
                                 dbg("GATE", "rejected (below threshold): kind=%s who=%s loud=%.4f < %.4f d=%.1fm",
@@ -134,11 +164,11 @@ local function push_event(x, y, z, kind, who, force, loud)
                         end
                         return
                 end
-                if d > (KIND_CAP[kind] or HEAR_CAP) then
+                if d > cap_d then
                         if dbg and rate("cap_" .. tostring(who or kind), 1000) then
                                 dbg("GATE", "rejected (too far): kind=%s who=%s d=%.0fm > %dm loud=%.3f",
                                         tostring(kind), tostring(who), d,
-                                        KIND_CAP[kind] or HEAR_CAP, loud)
+                                        cap_d, loud)
                         end
                         return
                 end
@@ -203,11 +233,24 @@ local function push_event(x, y, z, kind, who, force, loud)
         end
         local n = #events
         if n >= cap then
-                if dbg then
-                        dbg("QUEUE", "evicted oldest id=%s (queue full %d/%d)",
-                                tostring(events[1].id), n, cap)
+                -- v2.7: weapon-кольца защищены от вытеснения. Жертва - самое
+                -- старое НЕ-weapon событие (шаги/физика/гул зон): они мелкие
+                -- и часто повторяются, а красная метка выстрела - критичный
+                -- сигнал. Только если очередь целиком из weapon, вытесняется
+                -- самое старое weapon (обычный FIFO).
+                local victim = 1
+                for i = 1, n do
+                        if events[i].kind ~= "weapon" then
+                                victim = i
+                                break
+                        end
                 end
-                table.remove(events, 1) -- вытесняем самое старое
+                if dbg then
+                        dbg("QUEUE", "evicted oldest id=%s kind=%s (queue full %d/%d%s)",
+                                tostring(events[victim].id), tostring(events[victim].kind),
+                                n, cap, victim ~= 1 and ", weapon protected" or "")
+                end
+                table.remove(events, victim) -- вытесняем жертву
                 n = n - 1
         end
         seq = seq + 1
