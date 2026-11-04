@@ -31,6 +31,16 @@
 -- sound_vision_events). Методы сталкеров (active_item) у техники не
 -- щупаются: биндинг движка печатает ошибки в лог даже под pcall.
 --
+-- Выстрел живёт у ствола (v2.6). WPN_shoot - сам звук выстрела: он
+-- излучается у дульного среза и якорится к стрелку ВСЕГДА, без сравнения
+-- с точкой пули. Прежний порог «|стрелок - пуля| > 2 м» оставлял события с
+-- пулей у ствола без якоря: громкость бралась переносом замера случайного
+-- ИИ-слушателя, и у слушателя рядом со стрелком (dl ~ 3 м) обратный квадрат
+-- давил 0.98*(3/43)^2 до 0.004 < 0.02 - игрок видел вспышки и слышал
+-- стрельбу, а гейт резал кольца. Потолок дальности оружия поднят до 250 м
+-- (KIND_CAP в sound_vision_events), чтобы пропускать всё, что слышит якорь
+-- ANV_SHOT (до ~246 м).
+--
 -- Архитектура (SRP: один модуль - одна ответственность, зависимости
 -- однонаправленные, связывание ленивое через глобальные таблицы модулей):
 --   sound_vision_config     - настройки (кэш значений MCM);
@@ -64,8 +74,8 @@
 --   8) npc_on_weapon_shot_start (моддед-экзешники) - КАЖДЫЙ выстрел NPC:
 --      кольцо ставится по факту стрельбы, независимо от звуковых метаданных
 --      (на сборках без этих колбэков канал подхватывает якорение WPN_*
---      в on_npc_hear: попадания пуль приходят всегда и ставят метку на
---      стрелке, см. v2.3)
+--      в on_npc_hear: WPN_shoot всегда якорится к стрелку, попадания пуль
+--      приходят всегда и тоже ставят метку на стрелке, см. v2.3/v2.6)
 --   9) npc_on_weapon_reload_start (моддед-экзешники) - начало перезарядки NPC
 --
 -- Зачем нужны 8 и 9: звук без валидного ogg-комментария получает
@@ -270,11 +280,25 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                         end
                 end
         end
-        -- Якорь WPN_*: СТРЕЛКОВ или ТОЧКУ ПОПАДАНИЯ - кто слышнее (v2.3+v2.5).
+        -- Якорь WPN_*: СТРЕЛКОВ или ТОЧКУ ПОПАДАНИЯ (v2.3+v2.5+v2.6).
         -- Для WPN_* движок отдаёт pos = позиция ПУЛИ (см. блок сигнатуры выше):
         -- кольца вспыхивали у ног игрока (пуля рядом) или отклонялись гейтом
-        -- (промах улетел за спину). Считаются ОБА кандидата, кольцо получает
-        -- слышимый:
+        -- (промах улетел за спину). Правила такие.
+        --
+        -- WPN_shoot - САМ ВЫСТРЕЛ, звук излучается у дульного среза: якорим
+        -- к стрелку ВСЕГДА (v2.6), сравнения с пулей нет. Раньше якорение
+        -- запускалось только при |стрелок - пуля| > 2 м, и события, где пуля
+        -- ещё у ствола, уходили в перенос замера случайного ИИ-слушателя:
+        -- если слушатель стоял у стрелка (dl ~ 3 м), обратный квадрат давил
+        -- громкость до 0.98*(3/43)^2 = 0.004 < 0.02 - игрок видел вспышки и
+        -- слышал стрельбу, а гейт резал кольца (лог 05.11: rejected на
+        -- 42-44 м при loud 0.0039-0.0046). Глушитель читается у
+        -- стрелка-сталкера (wpn_anchor); если who_id не разрешился, якорим
+        -- в точку движка - для WPN_shoot это и есть ствол, но без проверки
+        -- глушителя.
+        --
+        -- Остальные WPN_* (hit и т.п. - точка ПОПАДАНИЯ): считаются ОБА
+        -- кандидата, кольцо получает слышимый:
         --   стрелок слышен (якорь типа звука на его дистанции, v2.4) ->
         --     кольцо на стрелке: направление на угрозу, стабильно от боя к бою;
         --   стрелок не слышен, а попадание у игрока слышно -> ВХОДЯЩИЙ ОГОНЬ
@@ -298,15 +322,30 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                 dl = math.sqrt(dist)                   -- в xr_hear: distance_to_sqr!
                 if dl < 0.5 then dl = 0.5 end          -- слушатель вплотную
         end
-        if kind == "weapon" and type(s_type) == "string" and src
+        if kind == "weapon" and type(s_type) == "string"
                 and string.find(string.lower(s_type), "wpn", 1, true) == 1 then
-                local ok2, ep = pcall(src.position, src)
-                if ok2 and ep and ep.x then
-                        local p0 = a:position()
+                local is_shot = string.find(string.lower(s_type), "shoot", 1, true) ~= nil
+                local p0 = a:position()
+                local px, py, pz = pos.x - p0.x, pos.y - p0.y, pos.z - p0.z
+                local d_en = math.sqrt(px * px + py * py + pz * pz)
+                local ok2, ep
+                if src then ok2, ep = pcall(src.position, src) end
+                if is_shot then
+                        -- v2.6: выстрел якорится к стволу всегда (см. блок выше)
+                        local anv, anv_name = wpn_anchor(s_type, src)
+                        if ok2 and ep and ep.x then
+                                local ex, ey, ez = ep.x - p0.x, ep.y - p0.y, ep.z - p0.z
+                                anch = ep
+                                anch_sh_d = math.sqrt(ex * ex + ey * ey + ez * ez)
+                        else
+                                -- стрелок не разрешился: точка движка и есть ствол
+                                anch = pos
+                        end
+                        anch_from = d_en
+                        anch_anv, anch_anv_name = anv, anv_name
+                elseif src and ok2 and ep and ep.x then
                         local ex, ey, ez = ep.x - p0.x, ep.y - p0.y, ep.z - p0.z
-                        local px, py, pz = pos.x - p0.x, pos.y - p0.y, pos.z - p0.z
                         local d_em = math.sqrt(ex * ex + ey * ey + ez * ez)
-                        local d_en = math.sqrt(px * px + py * py + pz * pz)
                         if math.abs(d_em - d_en) > 2 then
                                 local anv, anv_name = wpn_anchor(s_type, src)
                                 -- Кандидат «стрелок» (v2.4): громкость от якоря
@@ -377,8 +416,10 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                                 " (incoming fire: shooter %.0fm below threshold -> impact ring, im=%.3f)",
                                 anch_sh_d or 0, anch_im)
                 elseif anch_from then
-                        extra = string.format(" (anchored: pos %.0fm -> shooter %.0fm, anv=%s)",
-                                anch_from, anch_sh_d or 0, tostring(anch_anv_name))
+                        extra = string.format(" (anchored: pos %.0fm -> shooter %s, anv=%s)",
+                                anch_from,
+                                anch_sh_d and string.format("%.0fm", anch_sh_d) or "?",
+                                tostring(anch_anv_name))
                 end
                 L.dbg("HEAR", "caught: s_type='%s' who=%s dl=%s p=%s -> %s loud=%s dp=%s%s",
                         tostring(s_type), L.who(who_id),
@@ -400,8 +441,9 @@ end
 --   npc_on_weapon_reload_start(npc, weapon)  - начало перезарядки.
 -- Актёру колбэк не приходит (диспатчит только CAI_Stalker, не CActor).
 -- Громкость - от виртуальных якорей (единая модель с detect): без глушителя
--- выстрел слышен до ~150 м (дальше режет HEAR_CAP очереди), с глушителем
--- до ~77 м, перезарядка до ~40 м. Ключ антиспама - id стрелка: каналы слуха
+-- выстрел слышен до ~246 м (потолок KIND_CAP.weapon = 250, v2.6), с
+-- глушителем до ~77 м, перезарядка до ~40 м. Ключ антиспама - id стрелка:
+-- каналы слуха
 -- и выстрела используют одно пространство ключей и в очереди склеиваются,
 -- дублей колец нет.
 -- ---------------------------------------------------------------------------
