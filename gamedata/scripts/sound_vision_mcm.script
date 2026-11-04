@@ -1,6 +1,9 @@
 -- ============================================================================
--- Sound Vision v1.1 - интеграция с MCM (Mod Configuration Menu)
+-- sound_vision_mcm: интеграция с MCM (Mod Configuration Menu)
 -- Работает и без установленного MCM: тогда используются значения по умолчанию.
+--
+-- Ответственность (SRP): только дерево настроек и единая точка их чтения.
+-- Кэширование и хранение значений - в sound_vision_config.
 --
 -- Структура дерева - по официальной документации MCM
 -- (github.com/RAX-Anomaly/Anomaly-Mod-Configuration-Menu) и по образцу
@@ -72,10 +75,10 @@ function get_config(key)
 end
 
 -- MCM вызывает on_option_change во всех *_mcm.script при применении настроек
--- (тот же колбэк, что и у ui_options). Обновляем кэш значений в движке мода.
+-- (тот же колбэк, что и у ui_options). Обновляем кэш значений в конфиг-модуле.
 function on_option_change()
-        if sound_vision and sound_vision.refresh_config then
-                pcall(sound_vision.refresh_config)
+        if sound_vision_config and sound_vision_config.refresh_config then
+                pcall(sound_vision_config.refresh_config)
         end
 end
 

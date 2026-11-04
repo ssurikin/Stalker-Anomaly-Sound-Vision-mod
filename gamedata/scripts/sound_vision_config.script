@@ -1,0 +1,74 @@
+-- ============================================================================
+-- sound_vision_config: конфигурация мода Sound Vision
+--
+-- Ответственность (SRP): единственная точка хранения и обновления настроек.
+-- Кэширует значения из MCM (sound_vision_mcm.get_config) в таблице mc;
+-- без установленного MCM используются значения по умолчанию.
+--
+-- Зависимости: sound_vision_mcm (разрешается лениво, в момент вызова
+-- refresh_config: обращение к глобалу само загружает нужный скрипт).
+--
+-- Экспорт (паттерн Twitch Integration: явная таблица в _G, движок лениво
+-- загружает скрипт при первом обращении к имени модуля из любого файла):
+--   mc             - кэш настроек; потребители читают напрямую (горячий путь
+--                    рендера), МЕНЯТЬ ИЗВНЕ ЗАПРЕЩЕНО - только refresh_config
+--   refresh_config - перечитать все настройки из MCM
+--
+-- Вызывают: sound_vision (on_game_start / actor_on_first_update /
+-- on_option_change), sound_vision_mcm (on_option_change).
+-- ============================================================================
+
+-- Кэш значений. Ключи совпадают с опциями MCM (см. sound_vision_mcm.script).
+local mc = {
+        enabled     = true,   -- мод включён
+        show_own    = false,  -- показывать собственные звуки игрока
+        max_dist    = 45,     -- дальность обнаружения звуков, м
+        lifetime    = 1.2,    -- время жизни волны, сек
+        throttle    = 0.3,    -- пауза между волнами одного источника, сек
+        size_px     = 96,     -- размер кольца (виртуальные пиксели HUD)
+        ref_dist    = 8,      -- базовое расстояние полного размера, м
+        min_frac    = 0.12,   -- минимальный размер дальнего звука (доля)
+        rings       = 2,      -- волн на один звук (1-3)
+        opacity     = 0.85,   -- яркость (доля)
+        cat_weapon  = true,   -- категория: выстрелы и оружие
+        cat_voice   = true,   -- категория: голос и речь
+        cat_step    = true,   -- категория: шаги и движение
+        cat_monster = true,   -- категория: мутанты
+        cat_anomaly = true,   -- категория: аномалии (гул, шипение)
+        cat_other   = true,   -- категория: физика и прочее
+        anm_pulse   = 4,      -- пауза между пульсами гула зоны, сек
+        phys_enable = true,   -- физика: следить за движением объектов
+        phys_sens   = 0.12,   -- порог смещения "объект движется", м
+}
+
+-- Перечитать настройки из MCM. Колбэк on_option_change приходит во все
+-- *_mcm.script при применении настроек; движок вызывает на старте игры.
+local function refresh_config()
+        mc.enabled     = sound_vision_mcm.get_config("enabled") ~= false
+        mc.show_own    = sound_vision_mcm.get_config("show_own") == true
+        mc.max_dist    = tonumber(sound_vision_mcm.get_config("max_dist")) or 45
+        mc.lifetime    = tonumber(sound_vision_mcm.get_config("lifetime")) or 1.2
+        mc.throttle    = tonumber(sound_vision_mcm.get_config("throttle")) or 0.3
+        mc.size_px     = tonumber(sound_vision_mcm.get_config("size_px")) or 96
+        mc.ref_dist    = math.max(0.5, tonumber(sound_vision_mcm.get_config("ref_dist")) or 8)
+        mc.min_frac    = (tonumber(sound_vision_mcm.get_config("min_frac")) or 12) / 100
+        mc.rings       = math.max(1, math.min(3, math.floor(tonumber(sound_vision_mcm.get_config("rings")) or 2)))
+        mc.opacity     = (tonumber(sound_vision_mcm.get_config("opacity")) or 85) / 100
+        mc.cat_weapon  = sound_vision_mcm.get_config("cat_weapon") ~= false
+        mc.cat_voice   = sound_vision_mcm.get_config("cat_voice") ~= false
+        mc.cat_step    = sound_vision_mcm.get_config("cat_step") ~= false
+        mc.cat_monster = sound_vision_mcm.get_config("cat_monster") ~= false
+        mc.cat_anomaly = sound_vision_mcm.get_config("cat_anomaly") ~= false
+        mc.cat_other   = sound_vision_mcm.get_config("cat_other") ~= false
+        mc.anm_pulse   = math.max(2, tonumber(sound_vision_mcm.get_config("anm_pulse")) or 4)
+        mc.phys_enable = sound_vision_mcm.get_config("phys_enable") ~= false
+        mc.phys_sens   = math.max(0.02, (tonumber(sound_vision_mcm.get_config("phys_sens")) or 12) / 100)
+end
+
+-- ============================================================================
+-- Экспорт модуля
+-- ============================================================================
+_G.sound_vision_config = {
+        mc             = mc,
+        refresh_config = refresh_config,
+}

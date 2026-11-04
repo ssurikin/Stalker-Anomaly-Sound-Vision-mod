@@ -1,11 +1,27 @@
 -- ============================================================================
--- Sound Vision v1.3
--- Визуальная индикация источников звука для слабослышащих игроков.
+-- Sound Vision: визуальная индикация источников звука для слабослышащих
+-- игроков. Корневой скрипт - композиционный корень и слой адаптеров.
 --
--- Что делает: рисует на экране расходящиеся кольца в точке любого звука
+-- Что делает мод: рисует на экране расходящиеся кольца в точке любого звука
 -- (выстрелы, шаги, голос, физика, аномалии) - в том числе сквозь стены.
 -- Размер кольца уменьшается с расстоянием до источника. Всё настраивается
 -- в MCM (Sound Vision -> настройки).
+--
+-- Архитектура (SRP: один модуль - одна ответственность, зависимости
+-- однонаправленные, связывание ленивое через глобальные таблицы модулей):
+--   sound_vision_config     - настройки (кэш значений MCM);
+--   sound_vision_classify   - классификация звука по типу, цвета категорий;
+--   sound_vision_events     - очередь событий: дальность, антиспам, масштаб;
+--   sound_vision_detect     - опрос мира: шаги, физика, зоны, болт (4 Гц);
+--   sound_vision_projection - мир -> HUD: проекция и пин к краю экрана;
+--   sound_vision_render     - пул колец, анимация, сглаживание переходов;
+--   sound_vision_mcm        - дерево настроек MCM + get_config().
+--
+-- Этот файл (SRP) отвечает только за:
+--   1) адаптеры источников событий -> очередь (ниже);
+--   2) регистрацию ванильных колбэков движка (on_game_start);
+--   3) привязку кадров игры к детекту и рендеру;
+--   4) отладочный фасад sound_vision_debug.
 --
 -- Источники событий (без перезаписи чужих файлов, только добавление):
 --   1) npc_on_hear_callback (ванильный) - ИИ-слух: любой NPC/монстр что-то
@@ -16,484 +32,63 @@
 --   4) physic_object_on_hit_callback (ванильный) - удар по физическому
 --      объекту (нож по бочке, пуля по ящику, кулак по коробке)
 --   5) actor_on_item_drop (ванильный) - игрок выбросил предмет (стук)
---   6) Опрос мира (4 Гц):
---      - движение NPC/мутантов -> "шаги" (гарантированно, сквозь стены)
---      - движение трупов/физики (бочки, коробки, гранаты) -> "физика"
---        (толкание бочки, скольжение, падение)
---      - аномальные зоны -> периодический "гул" (idle-звук зон играет
---        циклично с случайными паузами - имитируем его пульсами)
---      - болт: остановился рядом с зоной -> активация аномалии
+--   6) sound_vision_detect - опрос мира (4 Гц): шаги, физика, гул зон, болт
 --   7) actor_on_footstep (ванильный) - шаги самого игрока (выкл. по умолч.)
---
--- Отрисовка: пул CUIStatic-колец (белая текстура ui\sv_ring.dds + цвет через
--- SetTextureColor), позиция - game.world2ui() (мир -> координаты HUD) для
--- источников в кадре. Источники за спиной и вне кадра НЕ зеркалятся: кольцо
--- плавно доезжает до края экрана на своей половине (как квестовые метки в
--- современных играх) и так же плавно возвращается при входе источника в кадр.
--- Размер кольца зависит только от дистанции до источника и в обоих состояниях
--- (в кадре / у края) одинаков. Анимация - расширение и затухание кольца.
 --
 -- Сигнатуры и паттерны взяты из:
 --   robe127.github.io/stalker-anomaly-modding-guide (callbacks-reference)
 --   исходников MCM 1.7 (github.com/RAX-Anomaly/Anomaly-Mod-Configuration-Menu)
---   реальных аддонов: Twitch Integration (UI + MCM + on_option_change),
---   targetID (иконки над головами), Stealth Overhaul Reworked (слух NPC).
+--   реальных аддонов: Twitch Integration (мультифайловая структура,
+--   ленивый экспорт модулей), targetID, Stealth Overhaul Reworked.
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
--- Конфиг (кэш значений MCM; значения читаются из sound_vision_mcm)
+-- Адаптеры источников событий. Каждый только извлекает данные из колбэка
+-- и отправляет событие в очередь; вся политика (включённость, категории,
+-- дальность, антиспам, масштаб) живёт в sound_vision_events.
 -- ---------------------------------------------------------------------------
-local mc = {
-        enabled     = true,
-        show_own    = false,
-        max_dist    = 45,
-        lifetime    = 1.2,
-        throttle    = 0.3,
-        size_px     = 96,
-        ref_dist    = 8,
-        min_frac    = 0.12,
-        rings       = 2,
-        opacity     = 0.85,
-        cat_weapon  = true,
-        cat_voice   = true,
-        cat_step    = true,
-        cat_monster = true,
-        cat_anomaly = true,
-        cat_other   = true,
-        anm_pulse   = 4,      -- пауза между пульсами гула зоны, сек
-        phys_enable = true,   -- физика: следить за движением объектов
-        phys_sens   = 0.12,   -- порог смещения "объект движется", м
-}
 
--- Обновление конфига. Глобальная функция: вызывается из sound_vision_mcm
--- (on_option_change) и из колбэков этого скрипта.
-function refresh_config()
-        mc.enabled     = sound_vision_mcm.get_config("enabled") ~= false
-        mc.show_own    = sound_vision_mcm.get_config("show_own") == true
-        mc.max_dist    = tonumber(sound_vision_mcm.get_config("max_dist")) or 45
-        mc.lifetime    = tonumber(sound_vision_mcm.get_config("lifetime")) or 1.2
-        mc.throttle    = tonumber(sound_vision_mcm.get_config("throttle")) or 0.3
-        mc.size_px     = tonumber(sound_vision_mcm.get_config("size_px")) or 96
-        mc.ref_dist    = math.max(0.5, tonumber(sound_vision_mcm.get_config("ref_dist")) or 8)
-        mc.min_frac    = (tonumber(sound_vision_mcm.get_config("min_frac")) or 12) / 100
-        mc.rings       = math.max(1, math.min(3, math.floor(tonumber(sound_vision_mcm.get_config("rings")) or 2)))
-        mc.opacity     = (tonumber(sound_vision_mcm.get_config("opacity")) or 85) / 100
-        mc.cat_weapon  = sound_vision_mcm.get_config("cat_weapon") ~= false
-        mc.cat_voice   = sound_vision_mcm.get_config("cat_voice") ~= false
-        mc.cat_step    = sound_vision_mcm.get_config("cat_step") ~= false
-        mc.cat_monster = sound_vision_mcm.get_config("cat_monster") ~= false
-        mc.cat_anomaly = sound_vision_mcm.get_config("cat_anomaly") ~= false
-        mc.cat_other   = sound_vision_mcm.get_config("cat_other") ~= false
-        mc.anm_pulse   = math.max(2, tonumber(sound_vision_mcm.get_config("anm_pulse")) or 4)
-        mc.phys_enable = sound_vision_mcm.get_config("phys_enable") ~= false
-        mc.phys_sens   = math.max(0.02, (tonumber(sound_vision_mcm.get_config("phys_sens")) or 12) / 100)
-end
-
--- ---------------------------------------------------------------------------
--- Классификация звука по типу (типы - строки из ogg-комментариев, напр.
--- "WPN_hit", "MST_attack", "NPC_step"; поддержана и битовая маска движка)
--- ---------------------------------------------------------------------------
--- цвет {r,g,b} на БЕЛОЙ текстуре: итог = пиксель текстуры * SetTextureColor / 255
-local KIND_COLOR = {
-        weapon  = {255, 70, 50},    -- выстрелы, оружие - красный
-        voice   = {255, 255, 255},  -- речь, крики, стоны - белый
-        step    = {255, 185, 70},   -- шаги, движение - жёлтый
-        monster = {235, 85, 255},   -- мутанты - фиолетовый
-        anomaly = {60, 255, 225},   -- аномалии: гул, шипение - бирюзовый
-        other   = {90, 165, 255},   -- физика: предметы, бочки, двери - синий
-        own     = {160, 160, 160},  -- собственные звуки игрока - серый
-}
-
-local KIND_CAT = {
-        weapon  = "cat_weapon",
-        voice   = "cat_voice",
-        step    = "cat_step",
-        monster = "cat_monster",
-        anomaly = "cat_anomaly",
-        other   = "cat_other",
-        own     = nil,              -- управляется show_own
-}
-
-local function hasbit(n, b)
-        return n % (b * 2) >= b
-end
-
-local function str_find(s, sub)
-        return string.find(s, sub, 1, true) ~= nil
-end
-
-local function classify(st)
-        if st == nil then return "other" end
-        if type(st) == "string" then
-                local s = string.lower(st)
-                if str_find(s, "wpn") or str_find(s, "weapon") or str_find(s, "shoot")
-                        or str_find(s, "shot") or str_find(s, "bullet") or str_find(s, "grenade")
-                        or str_find(s, "explosion") then
-                        return "weapon"
-                end
-                if str_find(s, "mst") or str_find(s, "monster") then
-                        return "monster"
-                end
-                if str_find(s, "voice") or str_find(s, "talk") or str_find(s, "speech")
-                        or str_find(s, "phrase") or str_find(s, "dialog") or str_find(s, "scream")
-                        or str_find(s, "pain") or str_find(s, "die") or str_find(s, "greet")
-                        or str_find(s, "hello") or str_find(s, "threat") then
-                        return "voice"
-                end
-                if str_find(s, "step") or str_find(s, "walk") or str_find(s, "jump")
-                        or str_find(s, "land") then
-                        return "step"
-                end
-                if str_find(s, "anom") or str_find(s, "zone") then
-                        return "anomaly"
-                end
-                if str_find(s, "obj") or str_find(s, "collid") or str_find(s, "break")
-                        or str_find(s, "drop") or str_find(s, "door") or str_find(s, "physic")
-                        or str_find(s, "impact") or str_find(s, "hit") then
-                        return "other"
-                end
-                return "other"
-        end
-        if type(st) == "number" then
-                -- классическая битовая маска ESoundTypes (fallback)
-                if hasbit(st, 1) or hasbit(st, 2) or hasbit(st, 4) or hasbit(st, 8) or hasbit(st, 16) then
-                        return "weapon"
-                end
-                if hasbit(st, 8192) or hasbit(st, 16384) or hasbit(st, 32768) or hasbit(st, 65536)
-                        or hasbit(st, 131072) or hasbit(st, 8388608) or hasbit(st, 16777216)
-                        or hasbit(st, 33554432) or hasbit(st, 67108864) or hasbit(st, 134217728) then
-                        return "monster"
-                end
-                if hasbit(st, 524288) then
-                        return "step"
-                end
-                if hasbit(st, 1048576) or hasbit(st, 2097152) or hasbit(st, 4194304) then
-                        return "voice"
-                end
-                return "other"
-        end
-        return "other"
-end
-
-local function can_show(kind)
-        if kind == "own" then return mc.show_own end
-        local cat = KIND_CAT[kind]
-        return cat and mc[cat]
-end
-
--- ---------------------------------------------------------------------------
--- Очередь событий
--- ---------------------------------------------------------------------------
-local POOL = 32                 -- всего колец на экране (XML: ring_1..ring_32)
-local events = {}               -- {x,y,z,kind,scale,t,dead}
-local throttle_t = {}           -- ключ источника -> time_global последнего события
-
-local function max_events()
-        return math.floor(POOL / mc.rings)
-end
-
-local function push_event(x, y, z, kind, who, force)
-        if not mc.enabled or not can_show(kind) then return end
-        local a = db.actor
-        if not a then return end
-        local ap = a:position()
-        local dx, dy, dz = x - ap.x, y - ap.y, z - ap.z
-        local d2 = dx * dx + dy * dy + dz * dz
-        local maxd = mc.max_dist
-        if d2 > maxd * maxd then return end
-        local now = time_global()
-        if not force then
-                local key = who or 0
-                local lt = throttle_t[key]
-                if lt and (now - lt) < mc.throttle * 1000 then return end
-                throttle_t[key] = now
-        end
-        local d = math.sqrt(d2)
-        -- масштаб размера: чем дальше источник, тем меньше кольцо
-        local scale = mc.ref_dist / math.max(d, 0.5)
-        if scale > 1 then scale = 1 end
-        if scale < mc.min_frac then scale = mc.min_frac end
-        local n = #events
-        local cap = max_events()
-        if n >= cap then
-                table.remove(events, 1) -- вытесняем самое старое
-                n = n - 1
-        end
-        events[n + 1] = { x = x, y = y, z = z, kind = kind, scale = scale, t = now, dead = false }
-end
-
--- ---------------------------------------------------------------------------
--- Источник 1: слух NPC (движок -> скрипт)
+-- Источник 1: слух NPC (движок -> скрипт).
 -- Сигнатура (Anomaly 1.5.x):
 --   npc_on_hear_callback(npc, who_id, s_type, dist, sound_power, sound_position)
--- ---------------------------------------------------------------------------
 local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
         if not pos or pos.x == nil then return end
         local a = db.actor
         if not a then return end
         if who_id ~= nil and who_id == a:id() then
                 -- источник звука - сам игрок
-                if mc.show_own then
-                        local p = a:position()
-                        push_event(p.x, p.y, p.z, "own", a:id())
-                end
+                sound_vision_events.push_event(a:position().x, a:position().y, a:position().z, "own", a:id())
                 return
         end
-        push_event(pos.x, pos.y, pos.z, classify(s_type), who_id)
+        sound_vision_events.push_event(pos.x, pos.y, pos.z, sound_vision_classify.classify(s_type), who_id)
 end
 
--- ---------------------------------------------------------------------------
--- Источник 2: колбэки аномалий (ванильные, см. callbacks-reference)
--- ---------------------------------------------------------------------------
+-- Источник 2: колбэки аномалий (ванильные, см. callbacks-reference).
 local function on_anomaly_activate(anomaly, activator)
-        if not mc.enabled or not mc.cat_anomaly then return end
-        if not anomaly then return end
-        local ok, p = pcall(anomaly.position, anomaly)
-        if ok and p and p.x then
-                push_event(p.x, p.y, p.z, "anomaly", "anm" .. anomaly:id(), true)
-        end
+        -- игрок/болт/NPC попали в зону: она шипит - немедленный импульс
+        sound_vision_events.push_object(anomaly, "anomaly", function(an) return "anm" .. an:id() end, true)
 end
 
 local function on_actor_feel_anomaly(anomaly, flags)
-        if not mc.enabled or not mc.cat_anomaly then return end
-        if not anomaly then return end
-        local ok, p = pcall(anomaly.position, anomaly)
-        if ok and p and p.x then
-                -- игрок вошёл в поле: зона шипит - пара немедленных импульсов
-                push_event(p.x, p.y, p.z, "anomaly", "anm" .. anomaly:id(), true)
-        end
+        -- игрок вошёл в поле: зона шипит - немедленный импульс
+        sound_vision_events.push_object(anomaly, "anomaly", function(an) return "anm" .. an:id() end, true)
 end
 
 -- ---------------------------------------------------------------------------
--- Источник 3: физика (ванильные колбэки + опрос движения)
+-- Источник 3: физика (ванильные колбэки; движение объектов ловит detect).
 -- ---------------------------------------------------------------------------
 local function on_physic_hit(obj, amount, direction, attacker, bone_id)
-        if not mc.enabled or not mc.phys_enable or not mc.cat_other then return end
-        if not obj then return end
-        local ok, p = pcall(obj.position, obj)
-        if ok and p and p.x then
-                push_event(p.x, p.y, p.z, "other", "ph" .. obj:id())
-        end
+        if not sound_vision_config.mc.phys_enable then return end
+        sound_vision_events.push_object(obj, "other", function(o) return "ph" .. o:id() end)
 end
 
 local function on_physic_use(obj, who)
-        if not mc.enabled or not mc.phys_enable or not mc.cat_other then return end
-        if not obj then return end
-        local ok, p = pcall(obj.position, obj)
-        if ok and p and p.x then
-                push_event(p.x, p.y, p.z, "other", "pu" .. obj:id())
-        end
+        if not sound_vision_config.mc.phys_enable then return end
+        sound_vision_events.push_object(obj, "other", function(o) return "pu" .. o:id() end)
 end
 
 local function on_item_drop(obj)
-        if not mc.enabled or not mc.cat_other then return end
-        if not obj then return end
-        local ok, p = pcall(obj.position, obj)
-        if ok and p and p.x then
-                push_event(p.x, p.y, p.z, "other", "dr" .. obj:id())
-        end
-end
-
--- ---------------------------------------------------------------------------
--- Источник 4: опрос мира (4 Гц). Один проход по db.storage:
---   - живые NPC/мутанты  -> "шаги"
---   - трупы, физпропосы  -> "физика" (толкание, скольжение, падение)
---   - зоны (zone_*)      -> "гул аномалии" + активация при приближении
---   - болты              -> активация аномалии при остановке болта в зоне
--- ---------------------------------------------------------------------------
-local MOVE_POLL_MS   = 250
-local STEP_MIN_D2    = 0.06    -- ~0.25 м за опрос => живой персонаж движется
-local BOLT_STOP_MS   = 450     -- болт неподвижен столько - он "приземлился"
-local ZONE_NEAR_M    = 3.0     -- ближе стольких метров до центра зоны - она "шипит"
-local ZONE_BOLT_R2   = 64      -- (8 м)^2 - болт остановился рядом с зоной => активация
-local BOLT_FLEW_D2   = 1.0     -- (1 м)^2 - болт должен пролететь хотя бы метр
-local move_timer     = 0
-local cleanup_timer  = 0
-
-local last_pos    = {}   -- [id] = {x,y,z} - прошлая позиция (для движения)
-local sections    = {}   -- [id] = секция объекта (кэш)
-local zone_state  = {}   -- [id] = {next=мс, near=bool} - пульс гула зон
-local zone_pos    = {}   -- [id] = {x,y,z} - центры зон рядом (для болтов)
-local bolt_state  = {}   -- [id] = {sx,sy,sz,lx,ly,lz,still,done}
-
-local function starts_with(s, sub)
-        return string.find(s, sub, 1, true) == 1
-end
-
-local function excluded_section(s)
-        -- оружие/патроны в руках NPC дублировали бы кольца самого NPC;
-        -- артефакты левитируют в зонах и шумели бы постоянно
-        return starts_with(s, "wpn_") or starts_with(s, "ammo_") or starts_with(s, "af_")
-end
-
-local function nearest_zone_id(x, y, z)
-        local best, bd2 = nil, ZONE_BOLT_R2
-        for zid, zp in pairs(zone_pos) do
-                local dx, dy, dz = x - zp.x, y - zp.y, z - zp.z
-                local d2 = dx * dx + dy * dy + dz * dz
-                if d2 < bd2 then
-                        bd2 = d2
-                        best = zid
-                end
-        end
-        return best
-end
-
-local function process_object(o, id, ap, maxd2, now)
-        local pos = o:position()
-        local ddx, ddz = pos.x - ap.x, pos.z - ap.z
-        local dd2 = ddx * ddx + ddz * ddz
-        if dd2 >= maxd2 then
-                if zone_pos[id] then zone_pos[id] = nil end
-                if zone_state[id] then zone_state[id] = nil end
-                if last_pos[id] then last_pos[id] = nil end
-                return
-        end
-
-        local sec = sections[id]
-        if not sec then
-                sec = o:section() or ""
-                sections[id] = sec
-        end
-
-        local is_mob = (IsStalker(o) or IsMonster(o)) and true or false
-        local lp = last_pos[id]
-        local md2 = 0
-        if lp then
-                md2 = (pos.x - lp.x) * (pos.x - lp.x)
-                        + (pos.y - lp.y) * (pos.y - lp.y)
-                        + (pos.z - lp.z) * (pos.z - lp.z)
-        end
-
-        -- 1) живые персонажи: шаги
-        if is_mob and o:alive() then
-                if lp and md2 > STEP_MIN_D2 then
-                        push_event(pos.x, pos.y, pos.z, "step", "mv" .. id)
-                end
-                if lp then
-                        lp.x, lp.y, lp.z = pos.x, pos.y, pos.z
-                else
-                        last_pos[id] = { x = pos.x, y = pos.y, z = pos.z }
-                end
-                return
-        end
-
-        -- 2) аномальные зоны: гул + активация при приближении
-        if starts_with(sec, "zone_") then
-                local zs = zone_state[id]
-                local d3 = math.sqrt(dd2 + (pos.y - ap.y) * (pos.y - ap.y))
-                local near = d3 < ZONE_NEAR_M
-                if not zs then
-                        zs = { next = 0, near = near }
-                        zone_state[id] = zs
-                end
-                zone_pos[id] = { x = pos.x, y = pos.y, z = pos.z }
-                if near and not zs.near then
-                        -- подход/вход: зона активируется (шипение)
-                        push_event(pos.x, pos.y, pos.z, "anomaly", "anm" .. id, true)
-                end
-                if now >= (zs.next or 0) then
-                        push_event(pos.x, pos.y, pos.z, "anomaly", "anm" .. id)
-                        local interval
-                        if near then
-                                interval = 1100 + math.random(0, 400)
-                        else
-                                interval = mc.anm_pulse * 1000 + math.random(0, 2000)
-                        end
-                        zs.next = now + interval
-                end
-                zs.near = near
-                return
-        end
-
-        -- 3) болты: остановился рядом с зоной => активация
-        if starts_with(sec, "bolt") then
-                local bs = bolt_state[id]
-                if not bs then
-                        bs = { sx = pos.x, sy = pos.y, sz = pos.z,
-                                lx = pos.x, ly = pos.y, lz = pos.z,
-                                still = 0, done = false }
-                        bolt_state[id] = bs
-                else
-                        local bdx = pos.x - bs.lx
-                        local bdy = pos.y - bs.ly
-                        local bdz = pos.z - bs.lz
-                        if bdx * bdx + bdy * bdy + bdz * bdz > 0.0025 then
-                                bs.still = 0
-                        else
-                                bs.still = bs.still + MOVE_POLL_MS
-                        end
-                        bs.lx, bs.ly, bs.lz = pos.x, pos.y, pos.z
-                        local sdx = pos.x - bs.sx
-                        local sdy = pos.y - bs.sy
-                        local sdz = pos.z - bs.sz
-                        if not bs.done and bs.still >= BOLT_STOP_MS
-                                and (sdx * sdx + sdy * sdy + sdz * sdz) > BOLT_FLEW_D2 then
-                                bs.done = true
-                                local zid = nearest_zone_id(pos.x, pos.y, pos.z)
-                                if zid then
-                                        local zp = zone_pos[zid]
-                                        push_event(zp.x, zp.y, zp.z, "anomaly", "anm_act", true)
-                                        if zone_state[zid] then
-                                                zone_state[zid].next = now + 1500
-                                        end
-                                end
-                        end
-                end
-                return
-        end
-
-        -- 4) физика: трупы, бочки, коробки, гранаты, брошенные вещи
-        if mc.phys_enable and not excluded_section(sec) and lp then
-                if md2 > mc.phys_sens * mc.phys_sens then
-                        push_event(pos.x, pos.y, pos.z, "other", "mv" .. id)
-                end
-        end
-        if lp then
-                lp.x, lp.y, lp.z = pos.x, pos.y, pos.z
-        else
-                last_pos[id] = { x = pos.x, y = pos.y, z = pos.z }
-        end
-end
-
-local function poll_world()
-        local a = db.actor
-        if not a or not a:alive() then return end
-        local aid = a:id()
-        local ap = a:position()
-        local maxd2 = (mc.max_dist + 5) * (mc.max_dist + 5)
-        local now = time_global()
-
-        for id, st in pairs(db.storage) do
-                local o = st and st.object
-                if o and id ~= aid then
-                        pcall(process_object, o, id, ap, maxd2, now)
-                end
-        end
-end
-
-local function cleanup_stale()
-        for id in pairs(last_pos) do
-                if not db.storage[id] then
-                        last_pos[id] = nil
-                        sections[id] = nil
-                        zone_state[id] = nil
-                        zone_pos[id] = nil
-                        bolt_state[id] = nil
-                end
-        end
-        for id in pairs(sections) do
-                if not db.storage[id] then sections[id] = nil end
-        end
-        for id in pairs(zone_state) do
-                if not db.storage[id] then
-                        zone_state[id] = nil
-                        zone_pos[id] = nil
-                end
-        end
-        for id in pairs(bolt_state) do
-                if not db.storage[id] then bolt_state[id] = nil end
-        end
+        sound_vision_events.push_object(obj, "other", function(o) return "dr" .. o:id() end)
 end
 
 -- ---------------------------------------------------------------------------
@@ -501,383 +96,58 @@ end
 -- Ванильная сигнатура: (surface:string, power, is_crouching, flags).
 -- На modded exes первый аргумент - объект, поэтому просто не реагируем
 -- на не-строку (там свои механизмы, игроку свои шаги обычно не нужны).
+-- show_own проверяется в очереди (can_show "own").
 -- ---------------------------------------------------------------------------
 local function on_footstep(surface, power, is_crouching, flags)
         if type(surface) ~= "string" then return end
-        if not mc.show_own then return end
         local a = db.actor
         if not a then return end
         local p = a:position()
-        push_event(p.x, p.y, p.z, "own", a:id())
+        sound_vision_events.push_event(p.x, p.y, p.z, "own", a:id())
 end
 
 -- ---------------------------------------------------------------------------
--- Проекция мировых координат в координаты HUD (виртуальное пространство UI).
---
--- game.world2ui() честна только для точек ПЕРЕД камерой и в кадре. Для точек
--- за камерой перспектива ЗЕРКАЛИТ координаты (тот самый "зеркальный" ореол),
--- для точек вне кадра - даёт сырые/мусорные значения. Поэтому всё, что не
--- попало в кадр, проецируем сами: строим камерный базис (вперёд/право/верх),
--- берём направление на источник и прижимаем кольцо к краю экрана, как
--- квестовые метки в современных играх. Знаки направления при этом не
--- искажены, поэтому кольцо уходит на СВОЮ половину экрана: звук слева - у
--- левого края, звук справа - у правого (выше/ниже - к своему краю тоже).
--- Источник строго за спиной (в пределах 0.3 м от вертикали "прямо назад")
--- держит последнюю известную сторону (ev.side), не прыгая между краями.
---
--- Калибровка (2 пробы у движка, раз в 2 сек):
---   - точка в 10 м прямо по взгляду -> центр экрана (cx, cy) в UI-пикселях;
---   - точка, смещённая на ~8.6 градуса по горизонтали -> знак "право" (s),
---     страховка от любой ориентации осей движка.
--- Границы экрана в UI-пикселях: (0..2*cx, 0..2*cy). Калибровка не зависит
--- от дистанции и направления взгляда; пересчитывается при смене разрешения.
---
--- Возвращает: sx, sy, edge (true = прижато к краю экрана) | nil. Возвращаемые
--- точки - "якоря" двух состояний: вызывающий (update_rings) плавно
--- интерполирует между ними по времени, поэтому переход экран <-> край без
--- мгновенных скачков позиции.
+-- Привязка кадров игры и системных событий.
 -- ---------------------------------------------------------------------------
-local tmp_v3 = vector()
-local tmp_v2 = vector2()
-local use_w2u3 = true
-local OFFSCREEN = -9000
-local PIN_MARGIN = 40          -- отступ прижатого кольца от края экрана, UI-пикселей
-local EDGE_BLEND_TAU = 120     -- постоянная времени сглаживания перехода "экран <-> край", мс
-
-local function probe_world2ui()
-        local ok = pcall(game.world2ui, tmp_v3:set(0, 0, 0), false, false)
-        use_w2u3 = ok
-end
-
--- Строгая проекция: для точек вне кадра/за камерой возвращает мусор или nil,
--- вызывающий обязан проверять результат и не доверять ему за камерой.
-local function w2ui(v)
-        if use_w2u3 then
-                local ok, res = pcall(game.world2ui, v, false, false)
-                if ok then return res end
-        end
-        local ok2, res2 = pcall(game.world2ui, v, false)
-        if ok2 then return res2 end
-        return nil
-end
-
-local cal = nil                -- { cx, cy, s } - калибровка проекции
-local cal_next_try = 0
-local cal_v = vector()
-local last_rx, last_rz = 1, 0  -- базис "право" для взгляда строго вверх/вниз
-
-local function calibrate()
-        local d = device()
-        local f = d.cam_dir
-        local hl = math.sqrt(f.x * f.x + f.z * f.z)
-        if hl < 1e-3 then return end           -- взгляд строго вверх/вниз
-        local cp = d.cam_pos
-        local D = 10                            -- проба в 10 м перед камерой
-        local td = 0.15                         -- смещение пробы ~8.6 градусов
-        local c = w2ui(cal_v:set(cp.x + f.x * D, cp.y + f.y * D, cp.z + f.z * D))
-        if not (c and c.x > OFFSCREEN and c.y > OFFSCREEN) then return end
-        if c.x < 100 or c.y < 100 then return end
-        local rx, rz = f.z / hl, -f.x / hl      -- горизонтальный базис "право"
-        local p = w2ui(cal_v:set(cp.x + f.x * D + rx * D * td,
-                cp.y + f.y * D, cp.z + f.z * D + rz * D * td))
-        if not (p and p.x > OFFSCREEN and p.y > OFFSCREEN) then return end
-        local s = (p.x - c.x) >= 0 and 1 or -1
-        cal = { cx = c.x, cy = c.y, s = s }
-end
-
-local function to_screen(x, y, z, ev)
-        local now = time_global()
-        if not cal or now >= cal_next_try then
-                cal_next_try = now + 2000
-                pcall(calibrate)
-        end
-        local d = device()
-        local f = d.cam_dir
-        local cp = d.cam_pos
-        local dx, dy, dz = x - cp.x, y - cp.y, z - cp.z
-        -- вперёд-компонента: > 0 = источник в передней полусфере камеры
-        local zf = dx * f.x + dy * f.y + dz * f.z
-        if zf > 0 then
-                local v = w2ui(tmp_v3:set(x, y, z))
-                if v and v.x > OFFSCREEN and v.y > OFFSCREEN then
-                        if not cal then
-                                -- калибровки ещё нет: рисуем как раньше
-                                return v.x, v.y, false
-                        end
-                        -- на экране = внутри границ с запасом. Координаты у
-                        -- самой границы или за ней - вне кадра, пиним ниже.
-                        if v.x >= 2 and v.x <= cal.cx * 2 - 2
-                                and v.y >= 2 and v.y <= cal.cy * 2 - 2 then
-                                return v.x, v.y, false
-                        end
-                end
-        end
-        -- вне кадра или за камерой: пин к краю экрана по камерному направлению
-        local hl = math.sqrt(f.x * f.x + f.z * f.z)
-        local rx, rz = last_rx, last_rz
-        if hl > 1e-3 then
-                rx = f.z / hl
-                rz = -f.x / hl
-                last_rx, last_rz = rx, rz
-        end
-        local X = dx * rx + dz * rz                                        -- "право"
-        local Y = dx * (f.y * rz) + dy * (f.z * rx - f.x * rz) + dz * (-f.y * rx) -- "верх"
-        local s = cal and cal.s or 1
-        if ev and math.abs(X) > 0.4 then
-                ev.side = (s * X > 0) and 1 or -1
-        end
-        if zf <= 0 and math.abs(X) < 0.3 then
-                -- источник строго за спиной: держим последнюю известную сторону
-                local side = (ev and ev.side) or 1
-                X = s * side
-        end
-        if not cal then return nil end
-        -- пересечение луча (cx,cy)+(s*X,-Y) с прямоугольником экрана (с отступом)
-        local hw = cal.cx - PIN_MARGIN
-        local hh = cal.cy - PIN_MARGIN
-        local ax, ay = math.abs(X), math.abs(Y)
-        local tx = (ax > 1e-9) and hw / ax or math.huge
-        local ty = (ay > 1e-9) and hh / ay or math.huge
-        local t = math.min(tx, ty)
-        local ex = cal.cx + s * X * t
-        local ey = cal.cy - Y * t
-        return ex, ey, true
-end
-
--- ---------------------------------------------------------------------------
--- HUD: окно-пул колец поверх основного HUD
--- ---------------------------------------------------------------------------
-class "SoundVisionHUD" (CUIScriptWnd)
-
-function SoundVisionHUD:__init()
-        super()
-        self.hidden = false
-        self.can_resize = true
-        local xml = CScriptXmlInit()
-        xml:ParseFile("ui_sound_vision.xml")
-        self.pool = {}
-        for i = 1, POOL do
-                local el = xml:InitStatic("ring_" .. i, self)
-                el:Show(false)
-                self.pool[i] = el
-        end
-        -- страховка: доступность SetWndSize на данном экзешнике
-        local ok = pcall(function()
-                self.pool[1]:SetWndSize(tmp_v2:set(16, 16))
-        end)
-        self.can_resize = ok
-        probe_world2ui()
-end
-
-function SoundVisionHUD:hide_all()
-        for i = 1, POOL do
-                self.pool[i]:Show(false)
-        end
-end
-
-function SoundVisionHUD:set_hidden(h)
-        self.hidden = h
-        if h then self:hide_all() end
-end
-
-function SoundVisionHUD:update_rings()
-        if not mc.enabled then
-                self:hide_all()
-                return
-        end
-        if self.hidden then return end
-        local now = time_global()
-        local life = mc.lifetime * 1000
-        local rpp = mc.rings
-        local idx = 0
-        local cnt = math.min(#events, max_events())
-        -- кадр-дельта для сглаживания перехода "экран <-> край"
-        local dt = now - (self.prev_ms or now)
-        self.prev_ms = now
-        if dt < 0 or dt > 1000 then dt = 1000 end      -- пауза/фриз: доезжаем мгновенно
-        for ei = 1, cnt do
-                local e = events[ei]
-                local age = now - e.t
-                if age > life then
-                        e.dead = true
-                else
-                        local sx, sy, edge = to_screen(e.x, e.y, e.z, e)
-                        if sx then
-                                local col = KIND_COLOR[e.kind] or KIND_COLOR.other
-                                -- Размер зависит ТОЛЬКО от дистанции до источника и одинаков
-                                -- в обоих состояниях (в кадре / у края) - без скачков.
-                                local base = mc.size_px * e.scale
-                                -- Экранный якорь: живая проекция world2ui; вне кадра -
-                                -- последняя валидная (замороженная) точка ухода с экрана.
-                                local ax, ay
-                                if edge then
-                                        -- пин поджимаем так, чтобы кольцо полного размера
-                                        -- не обрезалось краем экрана
-                                        if cal then
-                                                local hx = math.min(base * 0.525, cal.cx)
-                                                local hy = math.min(base * 0.525, cal.cy)
-                                                if sx < hx then sx = hx elseif sx > cal.cx * 2 - hx then sx = cal.cx * 2 - hx end
-                                                if sy < hy then sy = hy elseif sy > cal.cy * 2 - hy then sy = cal.cy * 2 - hy end
-                                        end
-                                        ax, ay = e.last_sx or sx, e.last_sy or sy
-                                        e.pin_x, e.pin_y = sx, sy
-                                else
-                                        ax, ay = sx, sy
-                                        e.last_sx, e.last_sy = sx, sy
-                                end
-                                -- Краевой якорь: живой пин у края; в кадре - последний пин.
-                                local ex, ey = e.pin_x or ax, e.pin_y or ay
-                                -- Плавный переход: blend 0 = кольцо в кадре, 1 = у края.
-                                -- Экспоненциальное сглаживание по времени даёт "доезд" до
-                                -- края при уходе источника из кадра и обратный доезд при
-                                -- возврате, без мгновенных скачков позиции.
-                                local target = edge and 1 or 0
-                                local b = e.blend
-                                if b == nil then
-                                        b = target             -- первое появление - сразу в нужном состоянии
-                                elseif b ~= target then
-                                        b = b + (target - b) * (1 - math.exp(-dt / EDGE_BLEND_TAU))
-                                        if math.abs(target - b) < 0.01 then b = target end
-                                end
-                                e.blend = b
-                                local px = ax + (ex - ax) * b
-                                local py = ay + (ey - ay) * b
-                                for r = 1, rpp do
-                                        idx = idx + 1
-                                        if idx <= POOL then
-                                                local k = age / life + (r - 1) / rpp
-                                                if k <= 1 then
-                                                        local el = self.pool[idx]
-                                                        local s = base * (0.55 + 0.5 * k)
-                                                        local al = mc.opacity * (1 - k)
-                                                        al = al * al            -- плавнее гаснет к концу
-                                                        if al > 0.03 then
-                                                                el:Show(true)
-                                                                -- (px,py) - ЦЕНТР кольца в обоих состояниях:
-                                                                -- нет сдвига на пол-кольца при переходе
-                                                                el:SetWndPos(tmp_v2:set(px - s * 0.5, py - s * 0.5))
-                                                                if self.can_resize then
-                                                                        el:SetWndSize(tmp_v2:set(s, s))
-                                                                end
-                                                                el:SetTextureColor(GetARGB(math.floor(al * 255), col[1], col[2], col[3]))
-                                                        else
-                                                                el:Show(false)
-                                                        end
-                                                else
-                                                        self.pool[idx]:Show(false)
-                                                end
-                                        end
-                                end
-                        end
-                end
-                if idx >= POOL then break end
-        end
-        if idx < POOL then
-                for i = idx + 1, POOL do
-                        self.pool[i]:Show(false)
-                end
-        end
-        -- удаляем мёртвые события (in-place)
-        local w = 0
-        for i = 1, #events do
-                if not events[i].dead then
-                        w = w + 1
-                        events[w] = events[i]
-                end
-        end
-        for i = #events, w + 1, -1 do
-                events[i] = nil
-        end
-end
-
--- ---------------------------------------------------------------------------
--- Обёртка над HUD: создание/удаление окна
--- ---------------------------------------------------------------------------
-local hud = nil
-local hud_init_failed = false
-
-local function hud_create()
-        if hud or hud_init_failed then return end
-        local ok, res = pcall(SoundVisionHUD)
-        if ok and res then
-                hud = res
-                get_hud():AddDialogToRender(hud)
-                printf("[sound_vision] HUD init ok")
-        else
-                hud_init_failed = true
-                printf("[sound_vision] HUD init FAILED: %s", tostring(res))
-        end
-end
-
-local function hud_destroy()
-        if hud then
-                pcall(function()
-                        get_hud():RemoveDialogToRender(hud)
-                end)
-                hud = nil
-        end
-end
-
--- ---------------------------------------------------------------------------
--- Прочие колбэки
--- ---------------------------------------------------------------------------
-local function on_gui_show(gui_name, obj)
-        if hud then hud:set_hidden(true) end
-end
-
-local function on_gui_hide(gui_name, obj)
-        if hud then hud:set_hidden(false) end
-end
-
-local function on_res_changed()
-        cal = nil                 -- UI-пространство сменилось: перекалибровка
-        cal_next_try = 0
-        -- сглаживание хранится в старых UI-пикселях - сбрасываем, чтобы кольца
-        -- не "доезжали" из несуществующих координат
-        for i = 1, #events do
-                local e = events[i]
-                e.blend, e.last_sx, e.last_sy, e.pin_x, e.pin_y = nil, nil, nil, nil, nil
-        end
-        if hud then hud:hide_all() end
-end
-
-local function on_actor_net_destroy()
-        hud_destroy()
-end
-
-local function on_load_state()
-        -- новая загрузка: чистим все состояния (события эфемерны и не сохраняются)
-        for i = 1, #events do events[i] = nil end
-        for k in pairs(throttle_t) do throttle_t[k] = nil end
-        for k in pairs(last_pos) do last_pos[k] = nil end
-        for k in pairs(sections) do sections[k] = nil end
-        for k in pairs(zone_state) do zone_state[k] = nil end
-        for k in pairs(zone_pos) do zone_pos[k] = nil end
-        for k in pairs(bolt_state) do bolt_state[k] = nil end
-        if hud then hud:hide_all() end
-end
 
 local function on_actor_update(_, dt)
-        if not hud then
-                hud_create()
-        end
-        if not mc.enabled then
-                if hud then hud:update_rings() end -- гасим остатки колец
+        -- HUD создаём при первом кадре; create() идемпотентен
+        sound_vision_render.create()
+        if not sound_vision_config.mc.enabled then
+                sound_vision_render.update()  -- гасим остатки колец
                 return
         end
         local now = time_global()
         -- сначала детект (события этого кадра), потом отрисовка
-        if now - move_timer >= MOVE_POLL_MS then
-                move_timer = now
-                poll_world()
-        end
-        if now - cleanup_timer >= 5000 then
-                cleanup_timer = now
-                cleanup_stale()
-        end
-        if hud then
-                hud:update_rings()
-        end
+        sound_vision_detect.update(now)
+        sound_vision_render.update()
+end
+
+local function on_gui_show(gui_name, obj)
+        sound_vision_render.set_hidden(true)   -- инвентарь/диалоги/карты поверх
+end
+
+local function on_gui_hide(gui_name, obj)
+        sound_vision_render.set_hidden(false)
+end
+
+local function on_res_changed()
+        -- UI-пространство сменилось: калибровка и сглаживание хранят старые
+        -- UI-пиксели - сбрасываем, кольца не "доезжают" из несуществующих точек
+        sound_vision_projection.reset()
+        sound_vision_events.reset_smooth()
+        sound_vision_render.hide_all()
+end
+
+local function on_actor_net_destroy()
+        sound_vision_render.destroy()
+end
+
+local function on_load_state()
+        -- новая загрузка: события эфемерны и не сохраняются - чистим всё
+        sound_vision_events.clear_all()
+        sound_vision_detect.clear()
+        sound_vision_render.hide_all()
 end
 
 -- ---------------------------------------------------------------------------
@@ -890,10 +160,10 @@ local function safe_register(name, fn)
 end
 
 function on_game_start()
-        refresh_config()
+        sound_vision_config.refresh_config()
         safe_register("actor_on_update", on_actor_update)
-        safe_register("actor_on_first_update", refresh_config)
-        safe_register("on_option_change", refresh_config)
+        safe_register("actor_on_first_update", sound_vision_config.refresh_config)
+        safe_register("on_option_change", sound_vision_config.refresh_config)
         safe_register("npc_on_hear_callback", on_npc_hear)
         safe_register("anomaly_on_before_activate", on_anomaly_activate)
         safe_register("actor_on_feeling_anomaly", on_actor_feel_anomaly)
@@ -908,12 +178,15 @@ function on_game_start()
         safe_register("load_state", on_load_state)
 end
 
+-- ---------------------------------------------------------------------------
 -- Отладочный доступ (только чтение; для диагностики и тестов):
 -- sound_vision_debug.events - текущая очередь событий, .classify(s_type) -
 -- классификатор, .push_event(...) - принудительно создать событие.
-sound_vision_debug = {
-        events = events,
-        push_event = push_event,
-        classify = classify,
-        refresh_config = refresh_config,
+-- Явный _G-экспорт: интерфейс доступен как обычный глобал из консоли/тестов.
+-- ---------------------------------------------------------------------------
+_G.sound_vision_debug = {
+        events = sound_vision_events.list,
+        push_event = sound_vision_events.push_event,
+        classify = sound_vision_classify.classify,
+        refresh_config = sound_vision_config.refresh_config,
 }

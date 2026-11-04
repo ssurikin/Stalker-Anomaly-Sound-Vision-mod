@@ -1,0 +1,145 @@
+-- ============================================================================
+-- sound_vision_events: очередь событий звука
+--
+-- Ответственность (SRP): приём событий (проверка дальности, категорий,
+-- антиспама одного источника), расчёт масштаба кольца от дистанции,
+-- хранение и жизненный цикл очереди (вытеснение старых, удаление мёртвых,
+-- сбросы состояния). Ничего не знает о проекции и отрисовке.
+--
+-- Зависимости: sound_vision_config, sound_vision_classify (оба лениво -
+-- грузятся позже по алфавиту, разрешаются при первом вызове).
+--
+-- Экспорт:
+--   push_event(x, y, z, kind, who, force) - событие в мировой точке
+--   push_object(obj, kind, who, force)    - событие в позиции объекта (DRY:
+--                                           единая pcall-обёртка obj:position())
+--   list                                  - живая очередь событий (НЕ мутировать
+--                                           извне: порядок и поля живут здесь)
+--   capacity()                            - ёмкость пула колец (XML ring_1..N)
+--   max_events()                          - сколько событий видно одновременно
+--   remove_dead()                         - вычистить события с dead=true
+--   reset_smooth()                        - сброс состояния сглаживания рендера
+--                                           (координаты в старых UI-пикселях,
+--                                           напр. при смене разрешения)
+--   clear_all()                           - полная очистка очереди и антиспама
+-- ============================================================================
+
+local POOL = 32        -- всего колец на экране (XML: ring_1..ring_32)
+local events = {}      -- {x,y,z,kind,scale,t,dead, blend,last_sx,last_sy,pin_x,pin_y}
+local throttle_t = {}  -- ключ источника -> time_global последнего события
+
+-- Ленивая инициализация. Кэшировать ссылки безопасно: mc живёт одной
+-- таблицей всю сессию (refresh_config меняет только поля).
+local cfg, can_show
+local function init()
+        if not cfg then
+                local cmod = _G.sound_vision_config
+                local kmod = _G.sound_vision_classify
+                if cmod and kmod then
+                        cfg = cmod.mc
+                        can_show = kmod.can_show
+                end
+        end
+end
+
+local function max_events()
+        init()
+        if not cfg then return 0 end
+        return math.floor(POOL / cfg.rings)
+end
+
+-- Добавить событие: мировая точка, категория, ключ источника (для антиспама),
+-- force - пропустить антиспам (точные активации: шипение зоны и т.п.).
+local function push_event(x, y, z, kind, who, force)
+        init()
+        if not cfg or not can_show then return end
+        if not cfg.enabled or not can_show(kind) then return end
+        local a = db.actor
+        if not a then return end
+        local ap = a:position()
+        local dx, dy, dz = x - ap.x, y - ap.y, z - ap.z
+        local d2 = dx * dx + dy * dy + dz * dz
+        local maxd = cfg.max_dist
+        if d2 > maxd * maxd then return end
+        local now = time_global()
+        if not force then
+                local key = who or 0
+                local lt = throttle_t[key]
+                if lt and (now - lt) < cfg.throttle * 1000 then return end
+                throttle_t[key] = now
+        end
+        local d = math.sqrt(d2)
+        -- масштаб размера: чем дальше источник, тем меньше кольцо
+        local scale = cfg.ref_dist / math.max(d, 0.5)
+        if scale > 1 then scale = 1 end
+        if scale < cfg.min_frac then scale = cfg.min_frac end
+        local n = #events
+        local cap = max_events()
+        if n >= cap then
+                table.remove(events, 1) -- вытесняем самое старое
+                n = n - 1
+        end
+        events[n + 1] = { x = x, y = y, z = z, kind = kind, scale = scale, t = now, dead = false }
+end
+
+-- Событие в позиции игрового объекта. Единая обёртка вместо пяти копий
+-- "local ok, p = pcall(obj.position, obj); if ok and p and p.x then ...".
+-- who - строка/число ИЛИ функция(obj) -> ключ: ленивый ключ вычисляется
+-- только после успешного pcall(position), ошибка в нём не роняет колбэк
+-- (точная семантика прежних обработчиков).
+local function push_object(obj, kind, who, force)
+        if not obj then return end
+        local ok, p = pcall(obj.position, obj)
+        if ok and p and p.x then
+                local key = who
+                if type(who) == "function" then
+                        local ok_key, k = pcall(who, obj)
+                        if not ok_key then return end
+                        key = k
+                end
+                push_event(p.x, p.y, p.z, kind, key, force)
+        end
+end
+
+-- Удалить мёртвые события (in-place; вызывает рендер после кадра).
+local function remove_dead()
+        local w = 0
+        for i = 1, #events do
+                if not events[i].dead then
+                        w = w + 1
+                        events[w] = events[i]
+                end
+        end
+        for i = #events, w + 1, -1 do
+                events[i] = nil
+        end
+end
+
+-- Сброс состояния сглаживания рендера (blend/якоря хранятся в UI-пикселях
+-- и становятся неверными при смене разрешения).
+local function reset_smooth()
+        for i = 1, #events do
+                local e = events[i]
+                e.blend, e.last_sx, e.last_sy, e.pin_x, e.pin_y = nil, nil, nil, nil, nil
+        end
+end
+
+-- Полная очистка: новая загрузка игры (события эфемерны и не сохраняются).
+local function clear_all()
+        for i = 1, #events do events[i] = nil end
+        for k in pairs(throttle_t) do throttle_t[k] = nil end
+end
+
+-- ============================================================================
+-- Экспорт модуля
+-- ============================================================================
+_G.sound_vision_events = {
+        push_event = push_event,
+        push_object = push_object,
+        list = events,
+        capacity = function() return POOL end,
+        max_events = max_events,
+        remove_dead = remove_dead,
+        reset_smooth = reset_smooth,
+        clear_all = clear_all,
+}

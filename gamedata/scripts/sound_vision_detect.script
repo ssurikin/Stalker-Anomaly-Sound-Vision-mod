@@ -1,0 +1,262 @@
+-- ============================================================================
+-- sound_vision_detect: обнаружение звуков опросом мира (4 Гц)
+--
+-- Ответственность (SRP): один проход по db.storage раз в MOVE_POLL_MS:
+--   - движение живых NPC/мутантов -> "шаги" (гарантированно, сквозь стены);
+--   - движение трупов/физики (бочки, коробки, гранаты) -> "физика"
+--     (толкание, скольжение, падение);
+--   - аномальные зоны -> периодический "гул" (idle-звук зон играет циклично
+--     с паузами - имитируем его пульсами) + "шипение" при приближении;
+--   - болт: пролетел и остановился рядом с зоной -> активация аномалии.
+-- События отправляет через sound_vision_events, сам ничего не рисует.
+--
+-- Зависимости: sound_vision_config, sound_vision_events (лениво).
+--
+-- Экспорт:
+--   update(now) - кадр игрока: опрос мира и чистка по своим таймерам
+--   clear()     - полный сброс состояния (загрузка игры)
+-- ============================================================================
+
+local MOVE_POLL_MS = 250    -- период опроса мира
+local CLEANUP_MS   = 5000   -- период чистки осиротевшего состояния
+local STEP_MIN_D2  = 0.06   -- ~0.25 м за опрос => живой персонаж движется
+local BOLT_STOP_MS = 450    -- болт неподвижен столько - он "приземлился"
+local ZONE_NEAR_M  = 3.0    -- ближе стольких метров до центра зоны - она "шипит"
+local ZONE_BOLT_R2 = 64     -- (8 м)^2 - болт остановился рядом с зоной => активация
+local BOLT_FLEW_D2 = 1.0    -- (1 м)^2 - болт должен пролететь хотя бы метр
+
+local move_timer    = 0
+local cleanup_timer = 0
+
+local last_pos   = {}   -- [id] = {x,y,z} - прошлая позиция (для движения)
+local sections   = {}   -- [id] = секция объекта (кэш)
+local zone_state = {}   -- [id] = {next=мс, near=bool} - пульс гула зон
+local zone_pos   = {}   -- [id] = {x,y,z} - центры зон рядом (для болтов)
+local bolt_state = {}   -- [id] = {sx,sy,sz,lx,ly,lz,still,done}
+
+-- Ленивая инициализация (см. sound_vision_events).
+local cfg, push_event
+local function init()
+        if not cfg then
+                local cmod = _G.sound_vision_config
+                local emod = _G.sound_vision_events
+                if cmod and emod then
+                        cfg = cmod.mc
+                        push_event = emod.push_event
+                end
+        end
+end
+
+local function starts_with(s, sub)
+        return string.find(s, sub, 1, true) == 1
+end
+
+local function excluded_section(s)
+        -- оружие/патроны в руках NPC дублировали бы кольца самого NPC;
+        -- артефакты левитируют в зонах и шумели бы постоянно
+        return starts_with(s, "wpn_") or starts_with(s, "ammo_") or starts_with(s, "af_")
+end
+
+local function nearest_zone_id(x, y, z)
+        local best, bd2 = nil, ZONE_BOLT_R2
+        for zid, zp in pairs(zone_pos) do
+                local dx, dy, dz = x - zp.x, y - zp.y, z - zp.z
+                local d2 = dx * dx + dy * dy + dz * dz
+                if d2 < bd2 then
+                        bd2 = d2
+                        best = zid
+                end
+        end
+        return best
+end
+
+local function process_object(o, id, ap, maxd2, now)
+        local pos = o:position()
+        local ddx, ddz = pos.x - ap.x, pos.z - ap.z
+        local dd2 = ddx * ddx + ddz * ddz
+        if dd2 >= maxd2 then
+                if zone_pos[id] then zone_pos[id] = nil end
+                if zone_state[id] then zone_state[id] = nil end
+                if last_pos[id] then last_pos[id] = nil end
+                return
+        end
+
+        local sec = sections[id]
+        if not sec then
+                sec = o:section() or ""
+                sections[id] = sec
+        end
+
+        local is_mob = (IsStalker(o) or IsMonster(o)) and true or false
+        local lp = last_pos[id]
+        local md2 = 0
+        if lp then
+                md2 = (pos.x - lp.x) * (pos.x - lp.x)
+                        + (pos.y - lp.y) * (pos.y - lp.y)
+                        + (pos.z - lp.z) * (pos.z - lp.z)
+        end
+
+        -- 1) живые персонажи: шаги
+        if is_mob and o:alive() then
+                if lp and md2 > STEP_MIN_D2 then
+                        push_event(pos.x, pos.y, pos.z, "step", "mv" .. id)
+                end
+                if lp then
+                        lp.x, lp.y, lp.z = pos.x, pos.y, pos.z
+                else
+                        last_pos[id] = { x = pos.x, y = pos.y, z = pos.z }
+                end
+                return
+        end
+
+        -- 2) аномальные зоны: гул + активация при приближении
+        if starts_with(sec, "zone_") then
+                local zs = zone_state[id]
+                local d3 = math.sqrt(dd2 + (pos.y - ap.y) * (pos.y - ap.y))
+                local near = d3 < ZONE_NEAR_M
+                if not zs then
+                        zs = { next = 0, near = near }
+                        zone_state[id] = zs
+                end
+                zone_pos[id] = { x = pos.x, y = pos.y, z = pos.z }
+                if near and not zs.near then
+                        -- подход/вход: зона активируется (шипение)
+                        push_event(pos.x, pos.y, pos.z, "anomaly", "anm" .. id, true)
+                end
+                if now >= (zs.next or 0) then
+                        push_event(pos.x, pos.y, pos.z, "anomaly", "anm" .. id)
+                        local interval
+                        if near then
+                                interval = 1100 + math.random(0, 400)
+                        else
+                                interval = cfg.anm_pulse * 1000 + math.random(0, 2000)
+                        end
+                        zs.next = now + interval
+                end
+                zs.near = near
+                return
+        end
+
+        -- 3) болты: остановился рядом с зоной => активация
+        if starts_with(sec, "bolt") then
+                local bs = bolt_state[id]
+                if not bs then
+                        bs = { sx = pos.x, sy = pos.y, sz = pos.z,
+                                lx = pos.x, ly = pos.y, lz = pos.z,
+                                still = 0, done = false }
+                        bolt_state[id] = bs
+                else
+                        local bdx = pos.x - bs.lx
+                        local bdy = pos.y - bs.ly
+                        local bdz = pos.z - bs.lz
+                        if bdx * bdx + bdy * bdy + bdz * bdz > 0.0025 then
+                                bs.still = 0
+                        else
+                                bs.still = bs.still + MOVE_POLL_MS
+                        end
+                        bs.lx, bs.ly, bs.lz = pos.x, pos.y, pos.z
+                        local sdx = pos.x - bs.sx
+                        local sdy = pos.y - bs.sy
+                        local sdz = pos.z - bs.sz
+                        if not bs.done and bs.still >= BOLT_STOP_MS
+                                and (sdx * sdx + sdy * sdy + sdz * sdz) > BOLT_FLEW_D2 then
+                                bs.done = true
+                                local zid = nearest_zone_id(pos.x, pos.y, pos.z)
+                                if zid then
+                                        local zp = zone_pos[zid]
+                                        push_event(zp.x, zp.y, zp.z, "anomaly", "anm_act", true)
+                                        if zone_state[zid] then
+                                                zone_state[zid].next = now + 1500
+                                        end
+                                end
+                        end
+                end
+                return
+        end
+
+        -- 4) физика: трупы, бочки, коробки, гранаты, брошенные вещи
+        if cfg.phys_enable and not excluded_section(sec) and lp then
+                if md2 > cfg.phys_sens * cfg.phys_sens then
+                        push_event(pos.x, pos.y, pos.z, "other", "mv" .. id)
+                end
+        end
+        if lp then
+                lp.x, lp.y, lp.z = pos.x, pos.y, pos.z
+        else
+                last_pos[id] = { x = pos.x, y = pos.y, z = pos.z }
+        end
+end
+
+local function poll_world()
+        local a = db.actor
+        if not a or not a:alive() then return end
+        local aid = a:id()
+        local ap = a:position()
+        local maxd2 = (cfg.max_dist + 5) * (cfg.max_dist + 5)
+        local now = time_global()
+
+        for id, st in pairs(db.storage) do
+                local o = st and st.object
+                if o and id ~= aid then
+                        pcall(process_object, o, id, ap, maxd2, now)
+                end
+        end
+end
+
+-- Чистка состояния объектов, исчезнувших из db.storage (деспавн, смена уровня).
+local function cleanup_stale()
+        for id in pairs(last_pos) do
+                if not db.storage[id] then
+                        last_pos[id] = nil
+                        sections[id] = nil
+                        zone_state[id] = nil
+                        zone_pos[id] = nil
+                        bolt_state[id] = nil
+                end
+        end
+        for id in pairs(sections) do
+                if not db.storage[id] then sections[id] = nil end
+        end
+        for id in pairs(zone_state) do
+                if not db.storage[id] then
+                        zone_state[id] = nil
+                        zone_pos[id] = nil
+                end
+        end
+        for id in pairs(bolt_state) do
+                if not db.storage[id] then bolt_state[id] = nil end
+        end
+end
+
+-- Кадр игрока: опрос мира и чистка каждый по своему таймеру.
+local function update(now)
+        init()
+        if not cfg or not push_event then return end
+        if now - move_timer >= MOVE_POLL_MS then
+                move_timer = now
+                poll_world()
+        end
+        if now - cleanup_timer >= CLEANUP_MS then
+                cleanup_timer = now
+                cleanup_stale()
+        end
+end
+
+-- Полный сброс состояния (загрузка игры).
+local function clear()
+        for k in pairs(last_pos) do last_pos[k] = nil end
+        for k in pairs(sections) do sections[k] = nil end
+        for k in pairs(zone_state) do zone_state[k] = nil end
+        for k in pairs(zone_pos) do zone_pos[k] = nil end
+        for k in pairs(bolt_state) do bolt_state[k] = nil end
+        move_timer = 0
+        cleanup_timer = 0
+end
+
+-- ============================================================================
+-- Экспорт модуля
+-- ============================================================================
+_G.sound_vision_detect = {
+        update = update,
+        clear = clear,
+}

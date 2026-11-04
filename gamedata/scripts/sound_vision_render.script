@@ -1,0 +1,232 @@
+-- ============================================================================
+-- sound_vision_render: отрисовка колец (HUD)
+--
+-- Ответственность (SRP): пул CUIStatic-колец поверх основного HUD, анимация
+-- расширения/затухания волн, плавный переход "в кадре <-> у края" (экспо-
+-- ненциальное сглаживание позиции по времени), единый центр кольца в обоих
+-- состояниях, поджим полного кольца под край экрана. Размер кольца зависит
+-- ТОЛЬКО от дистанции до источника (e.scale из очереди событий) и одинаков
+-- в обоих состояниях - никаких модификаторов "у края".
+--
+-- Зависимости (все лениво): sound_vision_config (настройки),
+-- sound_vision_classify (цвета), sound_vision_events (очередь),
+-- sound_vision_projection (проекция и границы экрана).
+--
+-- Экспорт:
+--   create()     - создать HUD и добавить в рендер (идемпотентно)
+--   destroy()    - убрать HUD из рендера
+--   update()     - кадр отрисовки (сам прячет кольца, если мод выключен)
+--   hide_all()   - спрятать все кольца (есть HUD или нет - безопасно)
+--   set_hidden() - спрятать/вернуть HUD (меню/диалоги поверх)
+-- ============================================================================
+
+-- постоянная времени сглаживания перехода "экран <-> край", мс:
+-- меньше = резче, больше = плавнее доезд
+local EDGE_BLEND_TAU = 120
+
+local tmp_v2 = vector2()
+
+-- Ленивая инициализация зависимостей (грузятся позже по алфавиту).
+local cfg, color_of, ev, proj
+local function init()
+        if not cfg then
+                cfg        = _G.sound_vision_config and _G.sound_vision_config.mc
+                color_of   = _G.sound_vision_classify and _G.sound_vision_classify.color_of
+                ev         = _G.sound_vision_events
+                proj       = _G.sound_vision_projection
+        end
+end
+
+-- ---------------------------------------------------------------------------
+-- Окно-пул колец поверх основного HUD (XML: ring_1..ring_N)
+-- ---------------------------------------------------------------------------
+class "SoundVisionHUD" (CUIScriptWnd)
+
+function SoundVisionHUD:__init()
+        super()
+        self.hidden = false
+        self.can_resize = true
+        local xml = CScriptXmlInit()
+        xml:ParseFile("ui_sound_vision.xml")
+        local pool_size = ev.capacity()
+        self.pool = {}
+        for i = 1, pool_size do
+                local el = xml:InitStatic("ring_" .. i, self)
+                el:Show(false)
+                self.pool[i] = el
+        end
+        -- страховка: доступность SetWndSize на данном экзешнике
+        local ok = pcall(function()
+                self.pool[1]:SetWndSize(tmp_v2:set(16, 16))
+        end)
+        self.can_resize = ok
+        proj.probe()
+end
+
+function SoundVisionHUD:hide_all()
+        for i = 1, #self.pool do
+                self.pool[i]:Show(false)
+        end
+end
+
+function SoundVisionHUD:set_hidden(h)
+        self.hidden = h
+        if h then self:hide_all() end
+end
+
+function SoundVisionHUD:update_rings()
+        if not cfg.enabled then
+                self:hide_all()
+                return
+        end
+        if self.hidden then return end
+        local now = time_global()
+        local life = cfg.lifetime * 1000
+        local rpp = cfg.rings
+        local pool = self.pool
+        local pool_size = #pool
+        local list = ev.list
+        local idx = 0
+        local cnt = math.min(#list, ev.max_events())
+        -- кадр-дельта для сглаживания перехода "экран <-> край"
+        local dt = now - (self.prev_ms or now)
+        self.prev_ms = now
+        if dt < 0 or dt > 1000 then dt = 1000 end      -- пауза/фриз: доезжаем мгновенно
+        for ei = 1, cnt do
+                local e = list[ei]
+                local age = now - e.t
+                if age > life then
+                        e.dead = true
+                else
+                        local sx, sy, edge = proj.to_screen(e.x, e.y, e.z, e)
+                        if sx then
+                                local col = color_of(e.kind)
+                                -- Размер зависит ТОЛЬКО от дистанции до источника и одинаков
+                                -- в обоих состояниях (в кадре / у края) - без скачков.
+                                local base = cfg.size_px * e.scale
+                                -- Экранный якорь: живая проекция world2ui; вне кадра -
+                                -- последняя валидная (замороженная) точка ухода с экрана.
+                                local ax, ay
+                                if edge then
+                                        -- пин поджимаем так, чтобы кольцо полного размера
+                                        -- не обрезалось краем экрана
+                                        local bx, by = proj.screen_bounds()
+                                        if bx then
+                                                local hx = math.min(base * 0.525, bx)
+                                                local hy = math.min(base * 0.525, by)
+                                                if sx < hx then sx = hx elseif sx > bx * 2 - hx then sx = bx * 2 - hx end
+                                                if sy < hy then sy = hy elseif sy > by * 2 - hy then sy = by * 2 - hy end
+                                        end
+                                        ax, ay = e.last_sx or sx, e.last_sy or sy
+                                        e.pin_x, e.pin_y = sx, sy
+                                else
+                                        ax, ay = sx, sy
+                                        e.last_sx, e.last_sy = sx, sy
+                                end
+                                -- Краевой якорь: живой пин у края; в кадре - последний пин.
+                                local ex, ey = e.pin_x or ax, e.pin_y or ay
+                                -- Плавный переход: blend 0 = кольцо в кадре, 1 = у края.
+                                -- Экспоненциальное сглаживание по времени даёт "доезд" до
+                                -- края при уходе источника из кадра и обратный доезд при
+                                -- возврате, без мгновенных скачков позиции.
+                                local target = edge and 1 or 0
+                                local b = e.blend
+                                if b == nil then
+                                        b = target             -- первое появление - сразу в нужном состоянии
+                                elseif b ~= target then
+                                        b = b + (target - b) * (1 - math.exp(-dt / EDGE_BLEND_TAU))
+                                        if math.abs(target - b) < 0.01 then b = target end
+                                end
+                                e.blend = b
+                                local px = ax + (ex - ax) * b
+                                local py = ay + (ey - ay) * b
+                                for r = 1, rpp do
+                                        idx = idx + 1
+                                        if idx <= pool_size then
+                                                local k = age / life + (r - 1) / rpp
+                                                if k <= 1 then
+                                                        local el = pool[idx]
+                                                        local s = base * (0.55 + 0.5 * k)
+                                                        local al = cfg.opacity * (1 - k)
+                                                        al = al * al            -- плавнее гаснет к концу
+                                                        if al > 0.03 then
+                                                                el:Show(true)
+                                                                -- (px,py) - ЦЕНТР кольца в обоих состояниях:
+                                                                -- нет сдвига на пол-кольца при переходе
+                                                                el:SetWndPos(tmp_v2:set(px - s * 0.5, py - s * 0.5))
+                                                                if self.can_resize then
+                                                                        el:SetWndSize(tmp_v2:set(s, s))
+                                                                end
+                                                                el:SetTextureColor(GetARGB(math.floor(al * 255), col[1], col[2], col[3]))
+                                                        else
+                                                                el:Show(false)
+                                                        end
+                                                else
+                                                        pool[idx]:Show(false)
+                                                end
+                                        end
+                                end
+                        end
+                end
+                if idx >= pool_size then break end
+        end
+        if idx < pool_size then
+                for i = idx + 1, pool_size do
+                        pool[i]:Show(false)
+                end
+        end
+        ev.remove_dead()
+end
+
+-- ---------------------------------------------------------------------------
+-- Жизненный цикл HUD-синглтона
+-- ---------------------------------------------------------------------------
+local hud = nil
+local hud_init_failed = false
+
+local function create()
+        if hud or hud_init_failed then return end
+        init()
+        if not cfg then return end
+        local ok, res = pcall(SoundVisionHUD)
+        if ok and res then
+                hud = res
+                get_hud():AddDialogToRender(hud)
+                printf("[sound_vision] HUD init ok")
+        else
+                hud_init_failed = true
+                printf("[sound_vision] HUD init FAILED: %s", tostring(res))
+        end
+end
+
+local function destroy()
+        if hud then
+                pcall(function()
+                        get_hud():RemoveDialogToRender(hud)
+                end)
+                hud = nil
+        end
+end
+
+local function update()
+        if hud then hud:update_rings() end
+end
+
+local function hide_all()
+        if hud then hud:hide_all() end
+end
+
+local function set_hidden(h)
+        if hud then hud:set_hidden(h) end
+end
+
+-- ============================================================================
+-- Экспорт модуля
+-- ============================================================================
+_G.sound_vision_render = {
+        create = create,
+        destroy = destroy,
+        update = update,
+        hide_all = hide_all,
+        set_hidden = set_hidden,
+}

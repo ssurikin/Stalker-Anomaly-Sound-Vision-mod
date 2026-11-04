@@ -1,0 +1,128 @@
+-- ============================================================================
+-- sound_vision_classify: классификация источников звука по типу
+--
+-- Ответственность (SRP): сопоставить тип звука (строка из ogg-комментариев,
+-- напр. "WPN_hit", "MST_attack", "NPC_step"; поддержана и битовая маска
+-- движка) категории "weapon"/"voice"/"step"/"monster"/"anomaly"/"other"/
+-- "own", дать цвет категории и ответить, включена ли категория в настройках.
+-- Логики обнаружения, хранения и отрисовки здесь нет.
+--
+-- Зависимости: sound_vision_config (лениво, только для can_show: модуль
+-- классификации грузится раньше конфига по алфавиту).
+--
+-- Экспорт:
+--   classify(s_type) - тип/маска -> категория
+--   can_show(kind)   - категория -> разрешена ли текущими настройками
+--   color_of(kind)   - категория -> {r,g,b} для БЕЛОЙ текстуры
+--                      (итог = пиксель текстуры * SetTextureColor / 255)
+-- ============================================================================
+
+-- цвет {r,g,b} на БЕЛОЙ текстуре: итог = пиксель текстуры * SetTextureColor / 255
+local KIND_COLOR = {
+        weapon  = {255, 70, 50},    -- выстрелы, оружие - красный
+        voice   = {255, 255, 255},  -- речь, крики, стоны - белый
+        step    = {255, 185, 70},   -- шаги, движение - жёлтый
+        monster = {235, 85, 255},   -- мутанты - фиолетовый
+        anomaly = {60, 255, 225},   -- аномалии: гул, шипение - бирюзовый
+        other   = {90, 165, 255},   -- физика: предметы, бочки, двери - синий
+        own     = {160, 160, 160},  -- собственные звуки игрока - серый
+}
+
+-- категория -> ключ настройки в sound_vision_config.mc ("own" - отдельно)
+local KIND_CAT = {
+        weapon  = "cat_weapon",
+        voice   = "cat_voice",
+        step    = "cat_step",
+        monster = "cat_monster",
+        anomaly = "cat_anomaly",
+        other   = "cat_other",
+        own     = nil,              -- управляется show_own
+}
+
+local function hasbit(n, b)
+        return n % (b * 2) >= b
+end
+
+local function str_find(s, sub)
+        return string.find(s, sub, 1, true) ~= nil
+end
+
+local function classify(st)
+        if st == nil then return "other" end
+        if type(st) == "string" then
+                local s = string.lower(st)
+                if str_find(s, "wpn") or str_find(s, "weapon") or str_find(s, "shoot")
+                        or str_find(s, "shot") or str_find(s, "bullet") or str_find(s, "grenade")
+                        or str_find(s, "explosion") then
+                        return "weapon"
+                end
+                if str_find(s, "mst") or str_find(s, "monster") then
+                        return "monster"
+                end
+                if str_find(s, "voice") or str_find(s, "talk") or str_find(s, "speech")
+                        or str_find(s, "phrase") or str_find(s, "dialog") or str_find(s, "scream")
+                        or str_find(s, "pain") or str_find(s, "die") or str_find(s, "greet")
+                        or str_find(s, "hello") or str_find(s, "threat") then
+                        return "voice"
+                end
+                if str_find(s, "step") or str_find(s, "walk") or str_find(s, "jump")
+                        or str_find(s, "land") then
+                        return "step"
+                end
+                if str_find(s, "anom") or str_find(s, "zone") then
+                        return "anomaly"
+                end
+                if str_find(s, "obj") or str_find(s, "collid") or str_find(s, "break")
+                        or str_find(s, "drop") or str_find(s, "door") or str_find(s, "physic")
+                        or str_find(s, "impact") or str_find(s, "hit") then
+                        return "other"
+                end
+                return "other"
+        end
+        if type(st) == "number" then
+                -- классическая битовая маска ESoundTypes (fallback)
+                if hasbit(st, 1) or hasbit(st, 2) or hasbit(st, 4) or hasbit(st, 8) or hasbit(st, 16) then
+                        return "weapon"
+                end
+                if hasbit(st, 8192) or hasbit(st, 16384) or hasbit(st, 32768) or hasbit(st, 65536)
+                        or hasbit(st, 131072) or hasbit(st, 8388608) or hasbit(st, 16777216)
+                        or hasbit(st, 33554432) or hasbit(st, 67108864) or hasbit(st, 134217728) then
+                        return "monster"
+                end
+                if hasbit(st, 524288) then
+                        return "step"
+                end
+                if hasbit(st, 1048576) or hasbit(st, 2097152) or hasbit(st, 4194304) then
+                        return "voice"
+                end
+                return "other"
+        end
+        return "other"
+end
+
+-- Ленивая инициализация: ссылку на mc кэшировать безопасно - refresh_config
+-- обновляет поля таблицы, сама таблица никогда не подменяется.
+local cfg
+local function init()
+        if not cfg then
+                local mod = _G.sound_vision_config
+                if mod then cfg = mod.mc end
+        end
+end
+
+local function can_show(kind)
+        init()
+        if not cfg then return false end
+        if kind == "own" then return cfg.show_own end
+        local cat = KIND_CAT[kind]
+        return cat and cfg[cat]
+end
+
+-- ============================================================================
+-- Экспорт модуля
+-- ============================================================================
+_G.sound_vision_classify = {
+        classify = classify,
+        can_show = can_show,
+        color_of = function(kind) return KIND_COLOR[kind] or KIND_COLOR.other end,
+}
