@@ -37,13 +37,24 @@
 --                                           (координаты в старых UI-пикселях,
 --                                           напр. при смене разрешения)
 --   clear_all()                           - полная очистка очереди и антиспама
+--
+-- Отладка (MCM -> Отладка -> Журнал отладки): каждая принятая копия события
+-- пишется в лог строкой QUEUE (с id события), каждое отклонение - строкой
+-- GATE с причиной: below threshold / too far / no loudness data / throttle /
+-- category off / mod disabled. Журнал ведёт sound_vision_log.
 -- ============================================================================
 
 local POOL = 32        -- всего колец на экране (XML: ring_1..ring_32)
 local HEAR_CAP = 150   -- предел показа по громкости, м: дальше аудио игрока уже
                        -- не различает источник, а обратный квадрат там неточен
-local events = {}      -- {x,y,z,kind,scale,t,loud,dead, blend,last_sx,last_sy,pin_x,pin_y}
+local events = {}      -- {id,x,y,z,kind,scale,t,loud,d,dead, blend,last_sx,last_sy,pin_x,pin_y}
 local throttle_t = {}  -- ключ источника -> time_global последнего события
+local seq = 0          -- сквозной номер события (связывает QUEUE и RENDER в логе)
+
+-- громкость для строки журнала: nil -> "n/a" (движковых данных не было)
+local function fmt_loud(loud)
+        return loud and string.format("%.3f", loud) or "n/a"
+end
 
 -- Ленивая инициализация. Кэшировать ссылки безопасно: mc живёт одной
 -- таблицей всю сессию (refresh_config меняет только поля).
@@ -69,12 +80,36 @@ end
 -- force - пропустить антиспам (точные активации: шипение зоны и т.п.),
 -- loud - громкость у игрока 0..1 (nil = без движковых данных: тогда
 -- действует legacy-гейт по дистанции, как в v1.x).
+-- Каждое решение пишется в журнал (GATE - отказ с причиной, QUEUE - приём),
+-- частотный фильтр не даёт затопить лог повторами одного источника.
 local function push_event(x, y, z, kind, who, force, loud)
         init()
         if not cfg or not can_show then return end
-        if not cfg.enabled or not can_show(kind) then return end
+        local L = _G.sound_vision_log
+        local dbg, rate = nil, nil
+        if L and L.on() then dbg, rate = L.dbg, L.rate end
+        if not cfg.enabled then
+                if dbg and rate("disabled", 1000) then
+                        dbg("GATE", "rejected (mod disabled): kind=%s who=%s",
+                                tostring(kind), tostring(who))
+                end
+                return
+        end
+        if not can_show(kind) then
+                if dbg and rate("cat_" .. tostring(kind), 1000) then
+                        dbg("GATE", "rejected (category off): kind=%s who=%s loud=%s",
+                                tostring(kind), tostring(who), fmt_loud(loud))
+                end
+                return
+        end
         local a = db.actor
-        if not a then return end
+        if not a then
+                if dbg and rate("no_actor", 1000) then
+                        dbg("GATE", "rejected (actor not ready): kind=%s who=%s",
+                                tostring(kind), tostring(who))
+                end
+                return
+        end
         local ap = a:position()
         local dx, dy, dz = x - ap.x, y - ap.y, z - ap.z
         local d2 = dx * dx + dy * dy + dz * dz
@@ -82,18 +117,44 @@ local function push_event(x, y, z, kind, who, force, loud)
         -- Гейт слышимости. loud считается отправителем (движковые события -
         -- через якорь ИИ-наблюдения, опрос мира - через виртуальные якоря).
         if cfg.by_loudness and loud ~= nil then
-                if loud < cfg.loud_th then return end      -- у игрока тише порога
-                if d > HEAR_CAP then return end            -- абсурдная дальность
+                if loud < cfg.loud_th then
+                        if dbg and rate("th_" .. tostring(who or kind), 1000) then
+                                dbg("GATE", "rejected (below threshold): kind=%s who=%s loud=%.4f < %.4f d=%.1fm",
+                                        tostring(kind), tostring(who), loud, cfg.loud_th, d)
+                        end
+                        return
+                end
+                if d > HEAR_CAP then
+                        if dbg and rate("cap_" .. tostring(who or kind), 1000) then
+                                dbg("GATE", "rejected (too far): kind=%s who=%s d=%.0fm > %dm loud=%.3f",
+                                        tostring(kind), tostring(who), d, HEAR_CAP, loud)
+                        end
+                        return
+                end
         else
                 -- legacy: единый радиус (режим "по дистанции" либо событие
                 -- без громкости - движковых данных не было)
-                if d > cfg.max_dist then return end
+                if d > cfg.max_dist then
+                        if dbg and rate("dist_" .. tostring(who or kind), 1000) then
+                                dbg("GATE", "rejected (%s d=%.0fm > %dm): kind=%s who=%s loud=%s",
+                                        loud == nil and "no loudness data, legacy radius" or "legacy radius",
+                                        d, cfg.max_dist, tostring(kind), tostring(who), fmt_loud(loud))
+                        end
+                        return
+                end
         end
         local now = time_global()
         if not force then
                 local key = who or 0
                 local lt = throttle_t[key]
-                if lt and (now - lt) < cfg.throttle * 1000 then return end
+                if lt and (now - lt) < cfg.throttle * 1000 then
+                        if dbg and rate("thr_" .. tostring(key), 1000) then
+                                dbg("GATE", "rejected (throttle, %.2fs < %.2fs): kind=%s who=%s loud=%s d=%.1fm",
+                                        (now - lt) / 1000, cfg.throttle, tostring(kind),
+                                        tostring(who), fmt_loud(loud), d)
+                        end
+                        return
+                end
                 throttle_t[key] = now
         end
         -- масштаб размера: чем дальше источник, тем меньше кольцо (дистанция
@@ -104,11 +165,20 @@ local function push_event(x, y, z, kind, who, force, loud)
         local n = #events
         local cap = max_events()
         if n >= cap then
+                if dbg then
+                        dbg("QUEUE", "evicted oldest id=%s (queue full %d/%d)",
+                                tostring(events[1].id), n, cap)
+                end
                 table.remove(events, 1) -- вытесняем самое старое
                 n = n - 1
         end
-        events[n + 1] = { x = x, y = y, z = z, kind = kind, scale = scale,
-                t = now, loud = loud, dead = false }
+        seq = seq + 1
+        events[n + 1] = { id = seq, x = x, y = y, z = z, kind = kind, scale = scale,
+                t = now, loud = loud, d = d, dead = false }
+        if dbg then
+                dbg("QUEUE", "accepted id=%d kind=%s who=%s loud=%s d=%.1fm (queue %d/%d)",
+                        seq, tostring(kind), tostring(who), fmt_loud(loud), d, n + 1, cap)
+        end
 end
 
 -- Событие в позиции игрового объекта. Единая обёртка вместо пяти копий
@@ -157,6 +227,7 @@ end
 local function clear_all()
         for i = 1, #events do events[i] = nil end
         for k in pairs(throttle_t) do throttle_t[k] = nil end
+        seq = 0
 end
 
 -- ============================================================================

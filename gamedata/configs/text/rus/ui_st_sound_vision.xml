@@ -55,6 +55,10 @@
 <string id="ui_mcm_sound_vision_hearing_loud_th_desc"><text>Минимальная громкость у игрока, при которой рисуется кольцо, в тысячных долях полной громкости. Больше - меньше дальних тихих звуков, меньше - больше колец. По умолчанию 20.</text></string>
 <string id="ui_mcm_sound_vision_detect_npc_shots"><text>Гарантированные выстрелы NPC</text></string>
 <string id="ui_mcm_sound_vision_detect_npc_shots_desc"><text>Кольцо выстрела ставится по факту стрельбы NPC, а не по метаданным звука: работает для любого оружейного пака и для стрелка, рядом с которым нет других NPC. Требует свежие моддед-экзешники (в GAMMA есть); где колбэка нет, работает обычный канал слуха. Глушители учитываются: тихий ствол виден с меньшей дистанции.</text></string>
-<string id="ui_mcm_sound_vision_detect_dbg_types"><text>Журнал типов звуков</text></string>
-<string id="ui_mcm_sound_vision_detect_dbg_types_desc"><text>Каждый новый тип звука пишется в лог игры строкой вида [Sound Vision] s_type '...' -> категория. Строки из лога можно добавить в sound_vision_overrides.script, чтобы перекрасить любые звуки сборки. После настройки выключите.</text></string>
+<!-- Debug -->
+<string id="ui_mcm_sound_vision_section_debug"><text>Отладка</text></string>
+<string id="ui_mcm_sound_vision_debug_debug_logs"><text>Журнал отладки</text></string>
+<string id="ui_mcm_sound_vision_debug_debug_logs_desc"><text>Полный трейс конвейера звука в лог игры (appdata\logs\xray_*.log): HEAR/SHOT/RELOAD - звук пойман каналом; GATE - очередь отклонила и почему (порог, дальность, категория, антиспам); QUEUE - событие принято; RENDER - кольцо выведено на экран или почему нет; INIT - какие колбэки зарегистрированы на этой сборке. Ищите строки с префиксом [sound_vision]. После диагностики выключите.</text></string>
+<string id="ui_mcm_sound_vision_debug_dbg_types"><text>Журнал типов звуков</text></string>
+<string id="ui_mcm_sound_vision_debug_dbg_types_desc"><text>Каждый новый тип звука пишется в лог игры строкой вида [sound_vision][TYPES] s_type '...' -> категория. Строки из лога можно добавить в sound_vision_overrides.script, чтобы перекрасить любые звуки сборки. После настройки выключите.</text></string>
 </string_table>

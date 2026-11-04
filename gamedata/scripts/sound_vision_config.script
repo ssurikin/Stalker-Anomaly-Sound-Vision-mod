@@ -43,6 +43,7 @@ local mc = {
         phys_sens   = 0.12,   -- порог смещения "объект движется", м
         npc_shots   = true,   -- гарантированные выстрелы NPC (моддед-экзешники)
         dbg_types   = false,  -- журнал новых типов звуков в лог игры
+        debug_logs  = false,  -- отладочный журнал конвейера (MCM: Отладка)
 }
 
 -- Перечитать настройки из MCM. Колбэк on_option_change приходит во все
@@ -71,6 +72,16 @@ local function refresh_config()
         mc.phys_sens   = math.max(0.02, (tonumber(sound_vision_mcm.get_config("phys_sens")) or 12) / 100)
         mc.npc_shots   = sound_vision_mcm.get_config("npc_shots") ~= false
         mc.dbg_types   = sound_vision_mcm.get_config("dbg_types") == true
+        mc.debug_logs  = sound_vision_mcm.get_config("debug_logs") == true
+        -- Журнал (MCM: Отладка): настройки перечитаны. Строка полезна как
+        -- маркер "настройки применились" в потоке отладочных строк.
+        local L = _G.sound_vision_log
+        if L and L.on() then
+                L.dbg("CONFIG", "refresh: enabled=%s by_loudness=%s loud_th=%.3f max_dist=%dm npc_shots=%s show_own=%s debug=%s",
+                        tostring(mc.enabled), tostring(mc.by_loudness), mc.loud_th,
+                        mc.max_dist, tostring(mc.npc_shots), tostring(mc.show_own),
+                        tostring(mc.debug_logs))
+        end
 end
 
 -- ============================================================================

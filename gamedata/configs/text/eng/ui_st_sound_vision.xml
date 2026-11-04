@@ -55,6 +55,10 @@
 <string id="ui_mcm_sound_vision_hearing_loud_th_desc"><text>Minimum loudness at the player for a ring to appear, in 1/1000 of full volume. Higher - fewer distant quiet sounds; lower - more rings. Default 20.</text></string>
 <string id="ui_mcm_sound_vision_detect_npc_shots"><text>Guaranteed NPC shots</text></string>
 <string id="ui_mcm_sound_vision_detect_npc_shots_desc"><text>A shot ring is placed when an NPC actually fires, instead of relying on sound metadata: works for any weapon pack and for a lone shooter with no other NPCs nearby. Requires recent modded exes (present in GAMMA); where the callback is missing, the regular hearing channel still works. Suppressors are respected: silenced shots show at a shorter range.</text></string>
-<string id="ui_mcm_sound_vision_detect_dbg_types"><text>Sound type log</text></string>
-<string id="ui_mcm_sound_vision_detect_dbg_types_desc"><text>Every new sound type string is written to the game log as [Sound Vision] s_type '...' -> category. Add those strings to sound_vision_overrides.script to recolor any sounds of your modpack. Turn off after tuning.</text></string>
+<!-- Debug -->
+<string id="ui_mcm_sound_vision_section_debug"><text>Debug</text></string>
+<string id="ui_mcm_sound_vision_debug_debug_logs"><text>Debug log</text></string>
+<string id="ui_mcm_sound_vision_debug_debug_logs_desc"><text>Full pipeline trace to the game log (appdata\logs\xray_*.log): HEAR/SHOT/RELOAD - sound caught by a channel; GATE - queue rejected it and why (threshold, distance, category, anti-spam); QUEUE - event accepted; RENDER - ring shown or why not; INIT - which callbacks registered on this build. Look for lines prefixed [sound_vision]. Turn off after diagnosing.</text></string>
+<string id="ui_mcm_sound_vision_debug_dbg_types"><text>Sound type log</text></string>
+<string id="ui_mcm_sound_vision_debug_dbg_types_desc"><text>Every new sound type is written to the game log as [sound_vision][TYPES] s_type '...' -> category. Add those strings to sound_vision_overrides.script to recolor any sounds of your modpack. Turn off after tuning.</text></string>
 </string_table>

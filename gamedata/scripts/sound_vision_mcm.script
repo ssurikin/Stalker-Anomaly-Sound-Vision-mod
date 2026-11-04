@@ -39,6 +39,7 @@ local defaults = {
         phys_sens   = 12,      -- порог смещения "объект движется", см
         npc_shots   = true,    -- гарантированные выстрелы NPC (моддед-экзешники)
         dbg_types   = false,   -- журнал новых типов звуков в лог игры
+        debug_logs  = false,   -- отладочный журнал конвейера (HEAR/GATE/QUEUE/RENDER)
 }
 
 -- имя опции -> группа в дереве MCM (нужно для пути ui_mcm.get)
@@ -65,7 +66,8 @@ local opt_group = {
         phys_enable = "detect",
         phys_sens   = "detect",
         npc_shots   = "detect",
-        dbg_types   = "detect",
+        dbg_types   = "debug",
+        debug_logs  = "debug",
 }
 
 -- Единая точка чтения настроек: из MCM, а если его нет - из defaults.
@@ -142,7 +144,11 @@ function on_mcm_load()
                                 { id = "phys_sens",   type = "track", val = 2,
                                         def = defaults.phys_sens, min = 5, max = 50, step = 1 },
                                 { id = "npc_shots",   type = "check", val = 1, def = defaults.npc_shots },
-                                { id = "dbg_types",   type = "check", val = 1, def = defaults.dbg_types },
+                        } },
+                        { id = "debug", sh = true, text = "ui_mcm_sound_vision_section_debug", gr = {
+                                { id = "title_debug", type = "title", text = "ui_mcm_sound_vision_section_debug" },
+                                { id = "debug_logs", type = "check", val = 1, def = defaults.debug_logs },
+                                { id = "dbg_types",  type = "check", val = 1, def = defaults.dbg_types },
                         } },
                 }
         }

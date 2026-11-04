@@ -29,6 +29,9 @@
 --   sound_vision_detect     - опрос мира: шаги, физика, зоны, болт (4 Гц);
 --   sound_vision_projection - мир -> HUD: проекция и пин к краю экрана;
 --   sound_vision_render     - пул колец, анимация, сглаживание переходов;
+--   sound_vision_log        - отладочный журнал (MCM: Отладка); теги HEAR/
+--                             SHOT/GATE/QUEUE/RENDER отвечают на вопрос
+--                             «звук ловим, а кольца нет - где теряем»;
 --   sound_vision_mcm        - дерево настроек MCM + get_config().
 --
 -- Этот файл (SRP) отвечает только за:
@@ -90,11 +93,28 @@
 -- в Lua), поэтому мир видим "через уши ИИ"; свои звуки приходят, когда их
 -- слышит кто-то из NPC (who_id == id игрока).
 local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
-        if not pos or pos.x == nil then return end
+        local L = _G.sound_vision_log
+        if not pos or pos.x == nil then
+                if L and L.on() then
+                        L.dbg("HEAR", "DROP: no position (s_type=%s who=%s)",
+                                tostring(s_type), tostring(who_id))
+                end
+                return
+        end
         local a = db.actor
-        if not a then return end
+        if not a then
+                if L and L.on() and L.rate("hear_no_actor", 1000) then
+                        L.dbg("HEAR", "DROP: actor not ready yet (s_type=%s)", tostring(s_type))
+                end
+                return
+        end
         if who_id ~= nil and who_id == a:id() then
                 -- источник звука - сам игрок
+                if L and L.on() then
+                        L.dbg("HEAR", "caught own sound: s_type=%s p=%s",
+                                tostring(s_type),
+                                type(power) == "number" and string.format("%.3f", power) or "?")
+                end
                 sound_vision_events.push_event(a:position().x, a:position().y, a:position().z, "own", a:id())
                 return
         end
@@ -106,12 +126,13 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
         -- поэтому на большой дальности мы скорее ПОКАЖЕМ слышимый звук, чем
         -- спрячем (для accessibility это правильная сторона ошибки).
         local loud = nil
+        local dl, dp
         if type(power) == "number" and type(dist) == "number" and power > 0 then
-                local dl = math.sqrt(dist)             -- в xr_hear: distance_to_sqr!
+                dl = math.sqrt(dist)                   -- в xr_hear: distance_to_sqr!
                 if dl < 0.5 then dl = 0.5 end          -- слушатель вплотную
                 local p = a:position()
                 local dx, dy, dz = pos.x - p.x, pos.y - p.y, pos.z - p.z
-                local dp = math.sqrt(dx * dx + dy * dy + dz * dz)
+                dp = math.sqrt(dx * dx + dy * dy + dz * dz)
                 if dp < 0.5 then
                         loud = 1                        -- источник у самого игрока
                 else
@@ -119,8 +140,19 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                         if loud > 1 then loud = 1 end
                 end
         end
-        sound_vision_events.push_event(pos.x, pos.y, pos.z,
-                sound_vision_classify.classify(s_type, who_id), who_id, nil, loud)
+        local kind = sound_vision_classify.classify(s_type, who_id)
+        -- Журнал (MCM: Отладка): событие слуха ПОЙМАНО; дальше решение очереди
+        -- пишут GATE/QUEUE, вывод кольца - RENDER (см. sound_vision_log).
+        if L and L.on() then
+                L.dbg("HEAR", "caught: s_type='%s' who=%s dl=%s p=%s -> %s loud=%s dp=%s",
+                        tostring(s_type), L.who(who_id),
+                        dl and string.format("%.1fm", dl) or "?",
+                        type(power) == "number" and string.format("%.3f", power) or "?",
+                        tostring(kind),
+                        loud and string.format("%.3f", loud) or "n/a",
+                        dp and string.format("%.1fm", dp) or "?")
+        end
+        sound_vision_events.push_event(pos.x, pos.y, pos.z, kind, who_id, nil, loud)
 end
 
 -- Виртуальные якоря громкости для глухих колбэков (без аудио-данных):
@@ -178,12 +210,32 @@ local function is_silenced(weapon)
 end
 
 local function on_npc_shot_start(npc, weapon)
-        if not sound_vision_config.mc.npc_shots then return end
+        if not sound_vision_config.mc.npc_shots then
+                local L = _G.sound_vision_log
+                if L and L.on() and L.rate("shot_off", 1000) then
+                        L.dbg("SHOT", "DROP: channel disabled in MCM (npc_shots=off)")
+                end
+                return
+        end
         if not npc then return end
         local ok, p = pcall(npc.position, npc)
-        if not (ok and p and p.x) then return end
-        local loud = anchor_loud(is_silenced(weapon) and ANV_SHOT_SIL or ANV_SHOT,
-                dist_to_actor(npc))
+        if not (ok and p and p.x) then
+                local L = _G.sound_vision_log
+                if L and L.on() then
+                        L.dbg("SHOT", "DROP: no position npc=%s", tostring(npc.id and npc:id()))
+                end
+                return
+        end
+        local sil = is_silenced(weapon)
+        local d = dist_to_actor(npc)
+        local loud = anchor_loud(sil and ANV_SHOT_SIL or ANV_SHOT, d)
+        local L = _G.sound_vision_log
+        if L and L.on() then
+                L.dbg("SHOT", "caught: npc=%s silenced=%s loud=%s d=%s",
+                        L.who(npc:id()), tostring(sil),
+                        string.format("%.3f", loud),
+                        d and string.format("%.1fm", d) or "?")
+        end
         sound_vision_events.push_event(p.x, p.y, p.z, "weapon", npc:id(), nil, loud)
 end
 
@@ -191,8 +243,21 @@ local function on_npc_reload_start(npc, weapon)
         if not sound_vision_config.mc.npc_shots then return end
         if not npc then return end
         local ok, p = pcall(npc.position, npc)
-        if not (ok and p and p.x) then return end
-        local loud = anchor_loud(ANV_RELOAD, dist_to_actor(npc))
+        if not (ok and p and p.x) then
+                local L = _G.sound_vision_log
+                if L and L.on() then
+                        L.dbg("RELOAD", "DROP: no position npc=%s", tostring(npc.id and npc:id()))
+                end
+                return
+        end
+        local d = dist_to_actor(npc)
+        local loud = anchor_loud(ANV_RELOAD, d)
+        local L = _G.sound_vision_log
+        if L and L.on() then
+                L.dbg("RELOAD", "caught: npc=%s loud=%s d=%s",
+                        L.who(npc:id()), string.format("%.3f", loud),
+                        d and string.format("%.1fm", d) or "?")
+        end
         sound_vision_events.push_event(p.x, p.y, p.z, "weapon", "rl" .. npc:id(), nil, loud)
 end
 
@@ -296,6 +361,11 @@ local function on_load_state()
         sound_vision_events.clear_all()
         sound_vision_detect.clear()
         sound_vision_render.hide_all()
+        local L = _G.sound_vision_log
+        if L then L.clear() end
+        if L and L.on() then
+                L.dbg("INIT", "load state: queue, detect and log rate state cleared")
+        end
 end
 
 -- ---------------------------------------------------------------------------
@@ -304,7 +374,18 @@ end
 -- регистрацию остальных колбэков.
 -- ---------------------------------------------------------------------------
 local function safe_register(name, fn)
-        pcall(RegisterScriptCallback, name, fn)
+        local ok, err = pcall(RegisterScriptCallback, name, fn)
+        -- Журнал (MCM: Отладка): на этой сборке колбэка нет - INIT прямо
+        -- скажет об этом, и пропадание канала больше не "молчаливое".
+        local L = _G.sound_vision_log
+        if L and L.on() then
+                if ok then
+                        L.dbg("INIT", "callback '%s' registered", name)
+                else
+                        L.dbg("INIT", "ERROR: callback '%s' NOT available on this build: %s",
+                                name, tostring(err))
+                end
+        end
 end
 
 function on_game_start()
@@ -326,6 +407,14 @@ function on_game_start()
         safe_register("on_screen_resolution_changed", on_res_changed)
         safe_register("actor_on_net_destroy", on_actor_net_destroy)
         safe_register("load_state", on_load_state)
+        -- Итог старта: какие каналы живы и как настроен конвейер.
+        local L = _G.sound_vision_log
+        if L and L.on() then
+                local mc = sound_vision_config.mc
+                L.dbg("INIT", "started: enabled=%s by_loudness=%s loud_th=%.3f max_dist=%dm npc_shots=%s show_own=%s",
+                        tostring(mc.enabled), tostring(mc.by_loudness), mc.loud_th,
+                        mc.max_dist, tostring(mc.npc_shots), tostring(mc.show_own))
+        end
 end
 
 -- ---------------------------------------------------------------------------

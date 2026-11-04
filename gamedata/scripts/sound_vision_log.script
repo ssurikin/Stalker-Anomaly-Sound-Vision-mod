@@ -1,0 +1,116 @@
+-- ============================================================================
+-- sound_vision_log: отладочный журнал Sound Vision
+--
+-- Ответственность (SRP): единая точка вывода отладочных строк в лог игры.
+-- Стиль журнала - по образцу Twitch Integration (ssurikin): теговые строки,
+-- собираемые локальной функцией debug_log(tag, fmt, ...) в каждом модуле:
+--   [sound_vision][HEAR] caught: s_type='WPN_shoot' who=1024(wpn_ak74) ...
+-- Теги по слоям конвейера (по ним ищут в логе):
+--   INIT    - регистрация колбэков и старт мода (какие каналы вообще живы)
+--   CONFIG  - перечитанные настройки
+--   HEAR    - каналы слуха: событие npc_on_hear_callback поймано
+--   SHOT    - гарантированный канал выстрелов NPC (моддед-экзешники)
+--   RELOAD  - гарантированный канал перезарядки NPC
+--   DETECT  - опрос мира: увидели шаги/физику/зоны/болт
+--   GATE    - очередь ОТКЛОНИЛА событие и почему (порог, дальность,
+--             категория, антиспам, мод выключен)
+--   QUEUE   - очередь ПРИНЯЛА событие (получит кольцо)
+--   RENDER  - кольцо выведено на экран; если событие умерло без проекции -
+--             обязательная строка FAILED с причиной
+--   TYPES   - журнал типов звуков (свой чекбокс, см. sound_vision_classify)
+--
+-- Логика ответа на вопрос "звук ловим, а кольца нет":
+--   HEAR/SHOT/DETECT есть, а QUEUE нет  -> причина в строке GATE;
+--   QUEUE есть, а RENDER shown нет      -> причина в строке RENDER FAILED
+--   (либо HUD спрятан меню - строка "HUD hidden").
+--
+-- Выключатель: MCM -> Sound Vision -> Отладка -> «Журнал отладки»
+-- (sound_vision_config.mc.debug_logs). Когда выключен, dbg() стоит дёшево:
+-- одну проверку булева поля - горячий путь не нагружает.
+--
+-- Частотный фильтр rate(key, ms): однотипные строки (отклонения одного
+-- источника, шаги одного NPC) не более одной в ms миллисекунд - журнал
+-- остаётся читаемым при 4 Гц опроса мира и не раздувает лог.
+--
+-- Зависимости: sound_vision_config (лениво, только чтобы прочитать
+-- debug_logs). Встречных зависимостей нет: модули обращаются к _G.
+-- sound_vision_log из любого места конвейера.
+--
+-- Экспорт:
+--   on()                 - включён ли журнал (mc.debug_logs)
+--   dbg(tag, fmt, ...)   - строка в лог, если журнал включён
+--   force(tag, fmt, ...) - строка в лог без проверки включённости
+--                          (журнал типов: у него свой чекбокс dbg_types)
+--   rate(key, ms)        - true = с этим ключом ещё можно логировать
+--                          (вызывать только при on(); ms по умолчанию 1000)
+--   who(id)              - "id(section)" источника для строки журнала
+--   clear()              - сброс фильтра частоты (загрузка игры)
+-- ============================================================================
+
+local last_t = {}   -- ключ частотного фильтра -> time_global последней записи
+
+local function on()
+        local cmod = _G.sound_vision_config
+        local mc = cmod and cmod.mc
+        return mc and mc.debug_logs or false
+end
+
+-- Вывод строки. printf есть в базовых скриптах Anomaly; обращения под
+-- pcall: сломанный формат не должен ронять игру в любой сборке.
+local function write(tag, fmt, ...)
+        local pf = _G.printf
+        if not pf then return end
+        local ok, msg = pcall(string.format, "[sound_vision][" .. tag .. "] " .. tostring(fmt), ...)
+        if not ok then
+                -- ошибка формата: строка как есть, без аргументов
+                ok, msg = pcall(string.format, "[sound_vision][%s] %s",
+                        tostring(tag), tostring(fmt))
+                if not ok then return end
+        end
+        pcall(pf, "%s", msg)
+end
+
+local function dbg(tag, fmt, ...)
+        if not on() then return end
+        write(tag, fmt, ...)
+end
+
+local function force(tag, fmt, ...)
+        write(tag, fmt, ...)
+end
+
+local function rate(key, ms)
+        local now = time_global()
+        local t = last_t[key]
+        if t and (now - t) < (ms or 1000) then return false end
+        last_t[key] = now
+        return true
+end
+
+-- Идентификация источника для строк журнала: "1024(wpn_ak74)"; объект
+-- мог уже деспавниться - тогда просто id. Обращение к level - ВНУТРИ
+-- замыкания: pcall ловит и отсутствие глобала level в экзотических сборках.
+local function who(id)
+        if id == nil then return "?" end
+        local ok, obj = pcall(function() return level.object_by_id(id) end)
+        if not ok or not obj then return tostring(id) .. "(?)" end
+        local ok2, sec = pcall(obj.section, obj)
+        if not ok2 or not sec then return tostring(id) .. "(?)" end
+        return tostring(id) .. "(" .. tostring(sec) .. ")"
+end
+
+local function clear()
+        for k in pairs(last_t) do last_t[k] = nil end
+end
+
+-- ============================================================================
+-- Экспорт модуля
+-- ============================================================================
+_G.sound_vision_log = {
+        on    = on,
+        dbg   = dbg,
+        force = force,
+        rate  = rate,
+        who   = who,
+        clear = clear,
+}

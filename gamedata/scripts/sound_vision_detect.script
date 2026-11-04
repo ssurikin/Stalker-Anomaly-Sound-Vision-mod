@@ -27,6 +27,10 @@
 -- Экспорт:
 --   update(now) - кадр игрока: опрос мира и чистка по своим таймерам
 --   clear()     - полный сброс состояния (загрузка игры)
+--
+-- Отладка (MCM -> Отладка -> Журнал отладки): каждое обнаружение пишется
+-- строкой DETECT (шаги - не чаще раза в секунду на персонажа); решение
+-- очереди пишут GATE/QUEUE (см. sound_vision_log).
 -- ============================================================================
 
 local MOVE_POLL_MS = 250    -- период опроса мира
@@ -129,6 +133,12 @@ local function process_object(o, id, ap, maxd2, now)
                         + (pos.z - lp.z) * (pos.z - lp.z)
         end
 
+        -- Журнал: опрос мира увидел издающих (MCM: Отладка). Дальше решение
+        -- очереди (GATE/QUEUE) пишут свои строки; здесь - сам факт обнаружения.
+        local L = _G.sound_vision_log
+        local dbg, rate = nil, nil
+        if L and L.on() then dbg, rate = L.dbg, L.rate end
+
         -- 1) живые персонажи: шаги. Громкость - от скорости: крадётся тихо,
         --    идёт средне, бежит громко (см. ANV_STEP* в шапке).
         if is_mob and o:alive() then
@@ -138,6 +148,11 @@ local function process_object(o, id, ap, maxd2, now)
                         if k > 1 then k = 1 end
                         local pv = ANV_STEP[2] + (ANV_STEP_RUN - ANV_STEP[2]) * k
                         local dp = math.sqrt(dd2 + (pos.y - ap.y) * (pos.y - ap.y))
+                        if dbg and rate("det_step_" .. id, 1000) then
+                                dbg("DETECT", "step: %s (%s) v=%.1fm/s loud=%.3f d=%.1fm",
+                                        L.who(id), tostring(sec), v,
+                                        anchor_loud({ ANV_STEP[1], pv }, dp), dp)
+                        end
                         push_event(pos.x, pos.y, pos.z, "step", "mv" .. id,
                                 false, anchor_loud({ ANV_STEP[1], pv }, dp))
                 end
@@ -162,10 +177,18 @@ local function process_object(o, id, ap, maxd2, now)
                 if near and not zs.near then
                         -- подход/вход: зона активируется (шипение)
                         local dp = d3
+                        if dbg then
+                                dbg("DETECT", "zone hiss (activation): %s loud=%.3f d=%.1fm",
+                                        tostring(sec), anchor_loud(ANV_ZONE_ACT, dp), dp)
+                        end
                         push_event(pos.x, pos.y, pos.z, "anomaly", "anm" .. id,
                                 true, anchor_loud(ANV_ZONE_ACT, dp))
                 end
                 if now >= (zs.next or 0) then
+                        if dbg then
+                                dbg("DETECT", "zone hum (idle pulse): %s loud=%.3f d=%.1fm",
+                                        tostring(sec), anchor_loud(ANV_ZONE, d3), d3)
+                        end
                         push_event(pos.x, pos.y, pos.z, "anomaly", "anm" .. id,
                                 false, anchor_loud(ANV_ZONE, d3))
                         local interval
@@ -209,6 +232,11 @@ local function process_object(o, id, ap, maxd2, now)
                                         local zp = zone_pos[zid]
                                         local dzx, dzy, dzz = zp.x - ap.x, zp.y - ap.y, zp.z - ap.z
                                         local dpz = math.sqrt(dzx * dzx + dzy * dzy + dzz * dzz)
+                                        if dbg then
+                                                dbg("DETECT", "bolt landed near zone: %s loud=%.3f d=%.1fm",
+                                                        tostring(sections[zid]),
+                                                        anchor_loud(ANV_ZONE_ACT, dpz), dpz)
+                                        end
                                         push_event(zp.x, zp.y, zp.z, "anomaly", "anm_act",
                                                 true, anchor_loud(ANV_ZONE_ACT, dpz))
                                         if zone_state[zid] then
@@ -224,6 +252,11 @@ local function process_object(o, id, ap, maxd2, now)
         if cfg.phys_enable and not excluded_section(sec) and lp then
                 if md2 > cfg.phys_sens * cfg.phys_sens then
                         local dp = math.sqrt(dd2 + (pos.y - ap.y) * (pos.y - ap.y))
+                        if dbg and rate("det_phys_" .. id, 1000) then
+                                dbg("DETECT", "phys move: %s (%s) loud=%.3f d=%.1fm",
+                                        L.who(id), tostring(sec),
+                                        anchor_loud(ANV_PHYS, dp), dp)
+                        end
                         push_event(pos.x, pos.y, pos.z, "other", "mv" .. id,
                                 false, anchor_loud(ANV_PHYS, dp))
                 end

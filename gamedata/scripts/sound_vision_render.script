@@ -73,7 +73,13 @@ end
 
 function SoundVisionHUD:set_hidden(h)
         self.hidden = h
-        if h then self:hide_all() end
+        if h then
+                self:hide_all()
+                local L = _G.sound_vision_log
+                if L and L.on() then
+                        L.dbg("RENDER", "HUD hidden (menu on top): rings paused")
+                end
+        end
 end
 
 function SoundVisionHUD:update_rings()
@@ -90,6 +96,8 @@ function SoundVisionHUD:update_rings()
         local list = ev.list
         local idx = 0
         local cnt = math.min(#list, ev.max_events())
+        local L = _G.sound_vision_log
+        local dbg = (L and L.on()) and L.dbg or nil
         -- кадр-дельта для сглаживания перехода "экран <-> край"
         local dt = now - (self.prev_ms or now)
         self.prev_ms = now
@@ -99,9 +107,24 @@ function SoundVisionHUD:update_rings()
                 local age = now - e.t
                 if age > life then
                         e.dead = true
+                        -- Журнал: событие принято очередью (QUEUE), но НЕ выведено -
+                        -- обязательная строка с причиной. Проекция возвращает точку
+                        -- почти всегда (за спиной пинится к краю), так что это
+                        -- калибровка/спрятанный HUD - но лог фиксирует сам факт.
+                        if dbg and not e.shown then
+                                dbg("RENDER", "FAILED id=%s kind=%s: died without projection (calibration or hidden HUD?)",
+                                        tostring(e.id), tostring(e.kind))
+                        end
                 else
                         local sx, sy, edge = proj.to_screen(e.x, e.y, e.z, e)
                         if sx then
+                                -- Журнал: индикатор ПОЛУЧИЛОСЬ вывести (первая проекция).
+                                if dbg and not e.shown then
+                                        e.shown = true
+                                        dbg("RENDER", "shown id=%s kind=%s d=%s edge=%s",
+                                                tostring(e.id), tostring(e.kind),
+                                                e.d and string.format("%.0fm", e.d) or "?", tostring(edge))
+                                end
                                 local col = color_of(e.kind)
                                 -- Размер зависит ТОЛЬКО от дистанции до источника и одинаков
                                 -- в обоих состояниях (в кадре / у края) - без скачков.

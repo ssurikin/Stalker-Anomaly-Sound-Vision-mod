@@ -118,17 +118,25 @@ end
 local registry_t = {}   -- [строка типа] = { kind = категория, n = счётчик }
 local logged = {}       -- строки, уже попавшие в журнал (пишутся один раз)
 
--- Журнал новых типов: MCM-опция dbg_types; printf есть в базовых скриптах
--- Anomaly, но не во всех сборках - оба обращения под страховкой.
+-- Журнал новых типов: свой чекбокс MCM (dbg_types, раздел "Отладка"),
+-- от мастер-выключателя журнала НЕ зависит (сбор списка для overrides
+-- не требует включать полный трейс). Пишется через sound_vision_log.force
+-- с тегом TYPES: [sound_vision][TYPES] s_type '...' -> категория.
 local function log_new_type(st, kind)
         local cmod = _G.sound_vision_config
         local mc = cmod and cmod.mc
         if not (mc and mc.dbg_types) then return end
         if logged[st] then return end
         logged[st] = true
-        local pf = _G.printf
-        if pf then
-                pcall(pf, "[Sound Vision] s_type '%s' -> %s", tostring(st), tostring(kind))
+        local L = _G.sound_vision_log
+        if L then
+                L.force("TYPES", "s_type '%s' -> %s", tostring(st), tostring(kind))
+        else
+                -- журнал недоступен (старая сборка мода) - пишем напрямую
+                local pf = _G.printf
+                if pf then
+                        pcall(pf, "[sound_vision][TYPES] s_type '%s' -> %s", tostring(st), tostring(kind))
+                end
         end
 end
 
