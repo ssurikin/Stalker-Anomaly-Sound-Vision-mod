@@ -1,0 +1,41 @@
+<string_table>
+<!-- Root -->
+<string id="ui_mcm_sound_vision"><text>Sound Vision - визуальная индикация звука</text></string>
+<!-- Sections -->
+<string id="ui_mcm_sound_vision_section_general"><text>Общие настройки</text></string>
+<string id="ui_mcm_sound_vision_section_size"><text>Размер и анимация</text></string>
+<string id="ui_mcm_sound_vision_section_categories"><text>Типы звуков</text></string>
+<!-- General -->
+<string id="ui_mcm_sound_vision_general_enabled"><text>Включить мод</text></string>
+<string id="ui_mcm_sound_vision_general_enabled_desc"><text>Рисовать расходящиеся кольца на экране в точке источника любого звука, в том числе сквозь стены.</text></string>
+<string id="ui_mcm_sound_vision_general_show_own"><text>Показывать свои звуки</text></string>
+<string id="ui_mcm_sound_vision_general_show_own_desc"><text>Кольца для собственных шагов и выстрелов игрока. По умолчанию выключено - свои звуки вы ощущаете и так.</text></string>
+<string id="ui_mcm_sound_vision_general_max_dist"><text>Дальность обнаружения (м)</text></string>
+<string id="ui_mcm_sound_vision_general_max_dist_desc"><text>Звуки дальше этого расстояния от игрока не показываются.</text></string>
+<string id="ui_mcm_sound_vision_general_lifetime"><text>Время жизни волны (сек)</text></string>
+<string id="ui_mcm_sound_vision_general_lifetime_desc"><text>Как долго одно расходящееся кольцо расширяется и гаснет.</text></string>
+<string id="ui_mcm_sound_vision_general_throttle"><text>Пауза от одного источника (сек)</text></string>
+<string id="ui_mcm_sound_vision_general_throttle_desc"><text>Минимальная пауза между кольцами от одного и того же источника звука. Меньше - больше колец и больше шума на экране.</text></string>
+<!-- Size -->
+<string id="ui_mcm_sound_vision_size_size_px"><text>Размер кольца (пиксели)</text></string>
+<string id="ui_mcm_sound_vision_size_size_px_desc"><text>Размер кольца для близкого источника звука (виртуальные пиксели HUD).</text></string>
+<string id="ui_mcm_sound_vision_size_ref_dist"><text>Базовое расстояние (м)</text></string>
+<string id="ui_mcm_sound_vision_size_ref_dist_desc"><text>На этом расстоянии кольцо имеет полный размер. У более дальних источников кольца меньше.</text></string>
+<string id="ui_mcm_sound_vision_size_min_frac"><text>Минимальный размер (доля)</text></string>
+<string id="ui_mcm_sound_vision_size_min_frac_desc"><text>Насколько маленьким может стать кольцо у самого дальнего звука (0.05-0.5 от полного размера).</text></string>
+<string id="ui_mcm_sound_vision_size_rings"><text>Волн на один звук</text></string>
+<string id="ui_mcm_sound_vision_size_rings_desc"><text>Сколько расходящихся колец рисуется для одного звука (1-3, в стиле сонара).</text></string>
+<string id="ui_mcm_sound_vision_size_opacity"><text>Яркость</text></string>
+<string id="ui_mcm_sound_vision_size_opacity_desc"><text>Общая непрозрачность колец (0.2-1.0).</text></string>
+<!-- Categories -->
+<string id="ui_mcm_sound_vision_categories_cat_weapon"><text>Выстрелы и оружие</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_weapon_desc"><text>Красные кольца: выстрелы, взрывы, гранаты.</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_voice"><text>Голос и речь</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_voice_desc"><text>Белые кольца: разговоры, крики, стоны.</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_step"><text>Шаги и движение</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_step_desc"><text>Жёлтые кольца: любой идущий или бегущий рядом, в том числе за стеной.</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_monster"><text>Мутанты</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_monster_desc"><text>Фиолетовые кольца: звуки мутантов - шаги, рычание, атаки.</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_other"><text>Физика и прочее</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_other_desc"><text>Синие кольца: выпавшие предметы, двери, столкновения объектов.</text></string>
+</string_table>

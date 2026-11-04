@@ -1,0 +1,542 @@
+-- ============================================================================
+-- Sound Vision v1.0
+-- Визуальная индикация источников звука для слабослышащих игроков.
+--
+-- Что делает: рисует на экране расходящиеся кольца в точке любого звука
+-- (выстрелы, шаги, голос, физика) - в том числе сквозь стены. Размер кольца
+-- уменьшается с расстоянием до источника. Всё настраивается в MCM
+-- (Sound Vision -> настройки).
+--
+-- Как мод узнаёт о звуках (без перезаписи чужих файлов, только добавление):
+--   1) npc_on_hear_callback (ванильный колбэк Anomaly) - игровой ИИ-слух:
+--      любой NPC/монстр что-то услышал (выстрел, шаг, голос, падение и т.д.)
+--   2) Опрос движения NPC/мутантов рядом с игроком - если объект сместился,
+--      он "шагает": гарантированные кольца, даже если звук никто не услышал
+--   3) actor_on_footstep (ванильный) - шаги самого игрока (выкл. по умолч.)
+--
+-- Отрисовка: пул CUIStatic-колец (белая текстура ui\sv_ring.dds + цвет через
+-- SetTextureColor), позиция - game.world2ui() (мир -> координаты HUD),
+-- анимация - расширение и затухание кольца.
+--
+-- Сигнатуры и паттерны взяты из:
+--   robe127.github.io/stalker-anomaly-modding-guide (callbacks-reference)
+--   реальных аддонов: targetID (иконки над головами), Stealth Overhaul
+--   Reworked (npc_on_hear_callback), Twitch Integration (UI + MCM).
+-- ============================================================================
+
+-- ---------------------------------------------------------------------------
+-- Конфиг (кэш значений MCM; значения читаются из sound_vision_mcm)
+-- ---------------------------------------------------------------------------
+local mc = {
+        enabled     = true,
+        show_own    = false,
+        max_dist    = 45,
+        lifetime    = 1.2,
+        throttle    = 0.3,
+        size_px     = 96,
+        ref_dist    = 8,
+        min_frac    = 0.12,
+        rings       = 2,
+        opacity     = 0.85,
+        cat_weapon  = true,
+        cat_voice   = true,
+        cat_step    = true,
+        cat_monster = true,
+        cat_other   = true,
+}
+
+local function refresh_config()
+        mc.enabled     = sound_vision_mcm.get_config("enabled") ~= false
+        mc.show_own    = sound_vision_mcm.get_config("show_own") == true
+        mc.max_dist    = tonumber(sound_vision_mcm.get_config("max_dist")) or 45
+        mc.lifetime    = tonumber(sound_vision_mcm.get_config("lifetime")) or 1.2
+        mc.throttle    = tonumber(sound_vision_mcm.get_config("throttle")) or 0.3
+        mc.size_px     = tonumber(sound_vision_mcm.get_config("size_px")) or 96
+        mc.ref_dist    = math.max(0.5, tonumber(sound_vision_mcm.get_config("ref_dist")) or 8)
+        mc.min_frac    = tonumber(sound_vision_mcm.get_config("min_frac")) or 0.12
+        mc.rings       = math.max(1, math.min(3, math.floor(tonumber(sound_vision_mcm.get_config("rings")) or 2)))
+        mc.opacity     = tonumber(sound_vision_mcm.get_config("opacity")) or 0.85
+        mc.cat_weapon  = sound_vision_mcm.get_config("cat_weapon") ~= false
+        mc.cat_voice   = sound_vision_mcm.get_config("cat_voice") ~= false
+        mc.cat_step    = sound_vision_mcm.get_config("cat_step") ~= false
+        mc.cat_monster = sound_vision_mcm.get_config("cat_monster") ~= false
+        mc.cat_other   = sound_vision_mcm.get_config("cat_other") ~= false
+end
+
+-- ---------------------------------------------------------------------------
+-- Классификация звука по типу (типы - строки из ogg-комментариев, напр.
+-- "WPN_hit", "MST_attack", "NPC_step"; на всякий случай поддержана и
+-- числовая битовая маска старых движков)
+-- ---------------------------------------------------------------------------
+-- цвет {r,g,b} на БЕЛОЙ текстуре: итог = пиксель текстуры * SetTextureColor / 255
+local KIND_COLOR = {
+        weapon  = {255, 70, 50},    -- выстрелы, оружие - красный
+        voice   = {255, 255, 255},  -- речь, крики, стоны - белый
+        step    = {255, 185, 70},   -- шаги, движение - жёлтый
+        monster = {235, 85, 255},   -- мутанты - фиолетовый
+        other   = {90, 165, 255},   -- физика: предметы, двери - синий
+        own     = {160, 160, 160},  -- собственные звуки игрока - серый
+}
+
+local KIND_CAT = {
+        weapon  = "cat_weapon",
+        voice   = "cat_voice",
+        step    = "cat_step",
+        monster = "cat_monster",
+        other   = "cat_other",
+        own     = nil,              -- управляется show_own
+}
+
+local function hasbit(n, b)
+        return n % (b * 2) >= b
+end
+
+local function str_find(s, sub)
+        return string.find(s, sub, 1, true) ~= nil
+end
+
+local function classify(st)
+        if st == nil then return "other" end
+        if type(st) == "string" then
+                local s = string.lower(st)
+                if str_find(s, "wpn") or str_find(s, "weapon") or str_find(s, "shoot")
+                        or str_find(s, "shot") or str_find(s, "bullet") or str_find(s, "grenade")
+                        or str_find(s, "explosion") then
+                        return "weapon"
+                end
+                if str_find(s, "mst") or str_find(s, "monster") then
+                        return "monster"
+                end
+                if str_find(s, "voice") or str_find(s, "talk") or str_find(s, "speech")
+                        or str_find(s, "phrase") or str_find(s, "dialog") or str_find(s, "scream")
+                        or str_find(s, "pain") or str_find(s, "die") or str_find(s, "greet")
+                        or str_find(s, "hello") or str_find(s, "threat") then
+                        return "voice"
+                end
+                if str_find(s, "step") or str_find(s, "walk") or str_find(s, "jump")
+                        or str_find(s, "land") then
+                        return "step"
+                end
+                if str_find(s, "obj") or str_find(s, "collid") or str_find(s, "break")
+                        or str_find(s, "drop") or str_find(s, "door") or str_find(s, "physic")
+                        or str_find(s, "impact") or str_find(s, "hit") then
+                        return "other"
+                end
+                return "other"
+        end
+        if type(st) == "number" then
+                -- классическая битовая маска ESoundTypes (fallback)
+                if hasbit(st, 1) or hasbit(st, 2) or hasbit(st, 4) or hasbit(st, 8) or hasbit(st, 16) then
+                        return "weapon"
+                end
+                if hasbit(st, 8192) or hasbit(st, 16384) or hasbit(st, 32768) or hasbit(st, 65536)
+                        or hasbit(st, 131072) or hasbit(st, 8388608) or hasbit(st, 16777216)
+                        or hasbit(st, 33554432) or hasbit(st, 67108864) or hasbit(st, 134217728) then
+                        return "monster"
+                end
+                if hasbit(st, 524288) then
+                        return "step"
+                end
+                if hasbit(st, 1048576) or hasbit(st, 2097152) or hasbit(st, 4194304) then
+                        return "voice"
+                end
+                return "other"
+        end
+        return "other"
+end
+
+local function can_show(kind)
+        if kind == "own" then return mc.show_own end
+        local cat = KIND_CAT[kind]
+        return cat and mc[cat]
+end
+
+-- ---------------------------------------------------------------------------
+-- События звука
+-- ---------------------------------------------------------------------------
+local POOL = 24                 -- всего колец на экране (XML: ring_1..ring_24)
+local events = {}               -- {x,y,z,kind,d,scale,t,dead}
+local throttle_t = {}           -- ключ источника -> time_global последнего события
+local last_pos = {}             -- [id] = {x,y,z} для опроса движения
+
+local function max_events()
+        return math.floor(POOL / mc.rings)
+end
+
+local function push_event(x, y, z, kind, who)
+        if not mc.enabled or not can_show(kind) then return end
+        local a = db.actor
+        if not a then return end
+        local ap = a:position()
+        local dx, dy, dz = x - ap.x, y - ap.y, z - ap.z
+        local d2 = dx * dx + dy * dy + dz * dz
+        local maxd = mc.max_dist
+        if d2 > maxd * maxd then return end
+        local now = time_global()
+        local key = who or 0
+        local lt = throttle_t[key]
+        if lt and (now - lt) < mc.throttle * 1000 then return end
+        throttle_t[key] = now
+        local d = math.sqrt(d2)
+        -- масштаб размера: чем дальше источник, тем меньше кольцо
+        local scale = mc.ref_dist / math.max(d, 0.5)
+        if scale > 1 then scale = 1 end
+        if scale < mc.min_frac then scale = mc.min_frac end
+        local n = #events
+        local cap = max_events()
+        if n >= cap then
+                table.remove(events, 1) -- вытесняем самое старое
+                n = n - 1
+        end
+        events[n + 1] = { x = x, y = y, z = z, kind = kind, scale = scale, t = now, dead = false }
+end
+
+-- ---------------------------------------------------------------------------
+-- Источник 1: слух NPC (движок -> скрипт)
+-- Сигнатура (Anomaly 1.5.x):
+--   npc_on_hear_callback(npc, who_id, s_type, dist, sound_power, sound_position)
+--   s_type - строка типа звука ("WPN_hit", "MST_attack", ...), см. classify()
+-- ---------------------------------------------------------------------------
+local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
+        if not pos or pos.x == nil then return end
+        local a = db.actor
+        if not a then return end
+        if who_id ~= nil and who_id == a:id() then
+                -- источник звука - сам игрок
+                if mc.show_own then
+                        local p = a:position()
+                        push_event(p.x, p.y, p.z, "own", a:id())
+                end
+                return
+        end
+        push_event(pos.x, pos.y, pos.z, classify(s_type), who_id)
+end
+
+-- ---------------------------------------------------------------------------
+-- Источник 2: опрос движения NPC/мутантов рядом с игроком.
+-- Гарантирует "шаги" для любого идущего персонажа (в т.ч. за стеной),
+-- даже если его не слышит ни один NPC (слух движка до него не доходит).
+-- ---------------------------------------------------------------------------
+local MOVE_POLL_MS   = 250
+local MOVE_MIN_D2    = 0.06    -- ~0.25 м за опрос => считается движением
+local move_timer     = 0
+local cleanup_timer  = 0
+
+local function movement_poll()
+        local a = db.actor
+        if not a or not a:alive() then return end
+        local aid = a:id()
+        local ap = a:position()
+        local maxd2 = (mc.max_dist + 5) * (mc.max_dist + 5)
+        for id, st in pairs(db.storage) do
+                local o = st and st.object
+                if o and id ~= aid then
+                        local ok, is_alive_mob = pcall(function()
+                                return (IsStalker(o) or IsMonster(o)) and o:alive()
+                        end)
+                        if ok and is_alive_mob then
+                                local p = o:position()
+                                local ddx, ddz = p.x - ap.x, p.z - ap.z
+                                local dd2 = ddx * ddx + ddz * ddz
+                                if dd2 < maxd2 then
+                                        local lp = last_pos[id]
+                                        if lp then
+                                                local md2 = (p.x - lp.x) * (p.x - lp.x)
+                                                        + (p.y - lp.y) * (p.y - lp.y)
+                                                        + (p.z - lp.z) * (p.z - lp.z)
+                                                if md2 > MOVE_MIN_D2 then
+                                                        push_event(p.x, p.y, p.z, "step", "mv" .. id)
+                                                end
+                                        end
+                                        if lp then
+                                                lp.x = p.x
+                                                lp.y = p.y
+                                                lp.z = p.z
+                                        else
+                                                last_pos[id] = { x = p.x, y = p.y, z = p.z }
+                                        end
+                                elseif last_pos[id] then
+                                        last_pos[id] = nil
+                                end
+                        end
+                end
+        end
+end
+
+local function cleanup_stale()
+        for id in pairs(last_pos) do
+                if not db.storage[id] then
+                        last_pos[id] = nil
+                end
+        end
+end
+
+-- ---------------------------------------------------------------------------
+-- Источник 3: шаги самого игрока.
+-- Ванильная сигнатура: (surface:string, power, is_crouching, flags).
+-- На modded exes первый аргумент - объект, поэтому просто не реагируем
+-- на не-строку (там свои механизмы, игроку свои шаги обычно не нужны).
+-- ---------------------------------------------------------------------------
+local function on_footstep(surface, power, is_crouching, flags)
+        if type(surface) ~= "string" then return end
+        if not mc.show_own then return end
+        local a = db.actor
+        if not a then return end
+        local p = a:position()
+        push_event(p.x, p.y, p.z, "own", a:id())
+end
+
+-- ---------------------------------------------------------------------------
+-- Проекция мировых координат в координаты HUD (виртуальное пространство UI).
+-- game.world2ui(pos, clamp_to_screen [, allow_offscreen])
+--   - без 3-го аргумента внеэкранная точка даёт -9999
+--   - 3-й аргумент (движки на базе xray-monolith) возвращает координаты
+--     даже вне экрана; определяем поддержку автоматически
+-- Возвращает: sx, sy, edge (true = прижато к краю экрана) | nil
+-- ---------------------------------------------------------------------------
+local tmp_v3 = vector()
+local tmp_v2 = vector2()
+local use_w2u3 = true
+local OFFSCREEN = -9000
+
+local function probe_world2ui()
+        local ok = pcall(game.world2ui, tmp_v3:set(0, 0, 0), false, true)
+        use_w2u3 = ok
+end
+
+local function world2ui(v, clamp)
+        if use_w2u3 then
+                local ok, res = pcall(game.world2ui, v, clamp, true)
+                if ok and res ~= nil then return res end
+        end
+        return game.world2ui(v, clamp)
+end
+
+local function to_screen(x, y, z)
+        local pos = tmp_v3:set(x, y, z)
+        local v = world2ui(pos, false)
+        if v and v.x > OFFSCREEN and v.y > OFFSCREEN then
+                -- координаты есть: убеждаемся, что точка не за камерой
+                local cd = device().cam_dir
+                local cp = device().cam_pos
+                local dot = (x - cp.x) * cd.x + (y - cp.y) * cd.y + (z - cp.z) * cd.z
+                if dot >= 0 then
+                        return v.x, v.y, false
+                end
+        end
+        -- вне экрана / за камерой: прижимаем к краю экрана (индикатор направления)
+        local vc = world2ui(pos, true)
+        if vc and vc.x > OFFSCREEN and vc.y > OFFSCREEN then
+                return vc.x, vc.y, true
+        end
+        return nil
+end
+
+-- ---------------------------------------------------------------------------
+-- HUD: окно-пул колец поверх основного HUD
+-- ---------------------------------------------------------------------------
+class "SoundVisionHUD" (CUIScriptWnd)
+
+function SoundVisionHUD:__init()
+        super()
+        self.hidden = false
+        self.can_resize = true
+        local xml = CScriptXmlInit()
+        xml:ParseFile("ui_sound_vision.xml")
+        self.pool = {}
+        for i = 1, POOL do
+                local el = xml:InitStatic("ring_" .. i, self)
+                el:Show(false)
+                self.pool[i] = el
+        end
+        -- страховка: доступность SetWndSize на данном экзешнике
+        local ok = pcall(function()
+                self.pool[1]:SetWndSize(tmp_v2:set(16, 16))
+        end)
+        self.can_resize = ok
+        probe_world2ui()
+end
+
+function SoundVisionHUD:hide_all()
+        for i = 1, POOL do
+                self.pool[i]:Show(false)
+        end
+end
+
+function SoundVisionHUD:set_hidden(h)
+        self.hidden = h
+        if h then self:hide_all() end
+end
+
+function SoundVisionHUD:update_rings()
+        if not mc.enabled then
+                self:hide_all()
+                return
+        end
+        if self.hidden then return end
+        local now = time_global()
+        local life = mc.lifetime * 1000
+        local rpp = mc.rings
+        local idx = 0
+        local cnt = math.min(#events, max_events())
+        for ei = 1, cnt do
+                local e = events[ei]
+                local age = now - e.t
+                if age > life then
+                        e.dead = true
+                else
+                        local sx, sy, edge = to_screen(e.x, e.y, e.z)
+                        if sx then
+                                local col = KIND_COLOR[e.kind] or KIND_COLOR.other
+                                local base = mc.size_px * e.scale
+                                if edge then base = base * 0.55 end
+                                for r = 1, rpp do
+                                        idx = idx + 1
+                                        if idx <= POOL then
+                                                local k = age / life + (r - 1) / rpp
+                                                if k <= 1 then
+                                                        local el = self.pool[idx]
+                                                        local s = base * (0.55 + 0.5 * k)
+                                                        local al = mc.opacity * (1 - k)
+                                                        al = al * al            -- плавнее гаснет к концу
+                                                        if edge then al = al * 0.75 end
+                                                        if al > 0.03 then
+                                                                el:Show(true)
+                                                                el:SetWndPos(tmp_v2:set(sx, sy))
+                                                                if self.can_resize then
+                                                                        el:SetWndSize(tmp_v2:set(s, s))
+                                                                end
+                                                                el:SetTextureColor(GetARGB(math.floor(al * 255), col[1], col[2], col[3]))
+                                                        else
+                                                                el:Show(false)
+                                                        end
+                                                else
+                                                        self.pool[idx]:Show(false)
+                                                end
+                                        end
+                                end
+                        end
+                end
+                if idx >= POOL then break end
+        end
+        if idx < POOL then
+                for i = idx + 1, POOL do
+                        self.pool[i]:Show(false)
+                end
+        end
+        -- удаляем мёртвые события (in-place)
+        local w = 0
+        for i = 1, #events do
+                if not events[i].dead then
+                        w = w + 1
+                        events[w] = events[i]
+                end
+        end
+        for i = #events, w + 1, -1 do
+                events[i] = nil
+        end
+end
+
+-- ---------------------------------------------------------------------------
+-- Обёртка над HUD: создание/удаление окна
+-- ---------------------------------------------------------------------------
+local hud = nil
+local hud_init_failed = false
+
+local function hud_create()
+        if hud or hud_init_failed then return end
+        local ok, res = pcall(SoundVisionHUD)
+        if ok and res then
+                hud = res
+                get_hud():AddDialogToRender(hud)
+                printf("[sound_vision] HUD init ok")
+        else
+                hud_init_failed = true
+                printf("[sound_vision] HUD init FAILED: %s", tostring(res))
+        end
+end
+
+local function hud_destroy()
+        if hud then
+                pcall(function()
+                        get_hud():RemoveDialogToRender(hud)
+                end)
+                hud = nil
+        end
+end
+
+-- ---------------------------------------------------------------------------
+-- Прочие колбэки
+-- ---------------------------------------------------------------------------
+local function on_gui_show(gui_name, obj)
+        if hud then hud:set_hidden(true) end
+end
+
+local function on_gui_hide(gui_name, obj)
+        if hud then hud:set_hidden(false) end
+end
+
+local function on_res_changed()
+        if hud then hud:hide_all() end
+end
+
+local function on_actor_net_destroy()
+        hud_destroy()
+end
+
+local function on_load_state()
+        -- новая загрузка: чистим все состояния (события эфемерны и не сохраняются)
+        for i = 1, #events do events[i] = nil end
+        for k in pairs(throttle_t) do throttle_t[k] = nil end
+        for k in pairs(last_pos) do last_pos[k] = nil end
+        if hud then hud:hide_all() end
+end
+
+local function on_actor_update(_, dt)
+        if not hud then
+                hud_create()
+        end
+        if not mc.enabled then
+                if hud then hud:update_rings() end -- гасим остатки колец
+                return
+        end
+        local now = time_global()
+        -- сначала детект (события этого кадра), потом отрисовка
+        if now - move_timer >= MOVE_POLL_MS then
+                move_timer = now
+                movement_poll()
+        end
+        if now - cleanup_timer >= 5000 then
+                cleanup_timer = now
+                cleanup_stale()
+        end
+        if hud then
+                hud:update_rings()
+        end
+end
+
+-- ---------------------------------------------------------------------------
+-- Регистрация (on_game_start вызывается автоматически в каждом скрипте)
+-- ---------------------------------------------------------------------------
+function on_game_start()
+        refresh_config()
+        RegisterScriptCallback("actor_on_update", on_actor_update)
+        RegisterScriptCallback("actor_on_first_update", refresh_config)
+        RegisterScriptCallback("on_option_change", refresh_config)
+        RegisterScriptCallback("npc_on_hear_callback", on_npc_hear)
+        RegisterScriptCallback("actor_on_footstep", on_footstep)
+        RegisterScriptCallback("GUI_on_show", on_gui_show)
+        RegisterScriptCallback("GUI_on_hide", on_gui_hide)
+        RegisterScriptCallback("on_screen_resolution_changed", on_res_changed)
+        RegisterScriptCallback("actor_on_net_destroy", on_actor_net_destroy)
+        RegisterScriptCallback("load_state", on_load_state)
+end
+
+-- Отладочный доступ (только чтение; для диагностики и тестов):
+-- sound_vision_debug.events - текущая очередь событий, .classify(s_type) -
+-- классификатор, .push_event(...) - принудительно создать событие.
+sound_vision_debug = {
+        events = events,
+        push_event = push_event,
+        classify = classify,
+}

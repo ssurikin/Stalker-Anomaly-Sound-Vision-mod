@@ -1,0 +1,101 @@
+-- ============================================================================
+-- Sound Vision v1.0 - интеграция с MCM (Mod Configuration Menu)
+-- Работает и без установленного MCM: тогда используются значения по умолчанию.
+--
+-- Подписи опций MCM берёт автоматически из строковых файлов:
+--   configs/text/<lang>/ui_st_sound_vision.xml
+--   ключи: ui_mcm_sound_vision_<группа>_<опция> (и ..._desc для подсказок)
+-- ============================================================================
+local defaults = {
+	enabled     = true,    -- мод включён
+	show_own    = false,   -- показывать собственные звуки игрока
+	max_dist    = 45,      -- дальность обнаружения звуков, м
+	lifetime    = 1.2,     -- время жизни волны, сек
+	throttle    = 0.3,     -- минимальная пауза между волнами одного источника, сек
+	size_px     = 96,      -- размер кольца (виртуальные пиксели HUD)
+	ref_dist    = 8,       -- базовое расстояние полного размера, м
+	min_frac    = 0.12,    -- минимальная доля размера у дальнего звука
+	rings       = 2,       -- волн на один звук (1-3)
+	opacity     = 0.85,    -- общая непрозрачность
+	cat_weapon  = true,    -- категория: выстрелы и оружие
+	cat_voice   = true,    -- категория: голос и речь
+	cat_step    = true,    -- категория: шаги и движение
+	cat_monster = true,    -- категория: мутанты
+	cat_other   = true,    -- категория: физика и прочее
+}
+
+-- имя опции -> группа в дереве MCM (нужно для пути ui_mcm.get)
+local opt_group = {
+	enabled     = "general",
+	show_own    = "general",
+	max_dist    = "general",
+	lifetime    = "general",
+	throttle    = "general",
+	size_px     = "size",
+	ref_dist    = "size",
+	min_frac    = "size",
+	rings       = "size",
+	opacity     = "size",
+	cat_weapon  = "categories",
+	cat_voice   = "categories",
+	cat_step    = "categories",
+	cat_monster = "categories",
+	cat_other   = "categories",
+}
+
+-- Единая точка чтения настроек: из MCM, а если его нет - из defaults.
+function get_config(key)
+	if ui_mcm then
+		local g = opt_group[key]
+		if g then
+			local ok, v = pcall(ui_mcm.get, "sound_vision/" .. g .. "/" .. key)
+			if ok and v ~= nil then
+				return v
+			end
+		end
+	end
+	return defaults[key]
+end
+
+function on_mcm_load()
+	local op = {
+		id = "sound_vision",
+		text = "ui_mcm_sound_vision",
+		sh = true,
+		gr = {
+			{ id = "general", sh = true, text = "ui_mcm_sound_vision_section_general", gr = {
+				{ type = "title", text = "ui_mcm_sound_vision_section_general" },
+				{ id = "enabled",  type = "check", val = 1, def = defaults.enabled },
+				{ id = "show_own", type = "check", val = 1, def = defaults.show_own },
+				{ id = "max_dist", type = "track", val = 2,
+					def = defaults.max_dist, min = 5, max = 100, step = 1 },
+				{ id = "lifetime", type = "track", val = 2,
+					def = defaults.lifetime, min = 0.4, max = 3.0, step = 0.1 },
+				{ id = "throttle", type = "track", val = 2,
+					def = defaults.throttle, min = 0.1, max = 1.0, step = 0.05 },
+			} },
+			{ id = "size", sh = true, text = "ui_mcm_sound_vision_section_size", gr = {
+				{ type = "title", text = "ui_mcm_sound_vision_section_size" },
+				{ id = "size_px",  type = "track", val = 2,
+					def = defaults.size_px, min = 24, max = 200, step = 2 },
+				{ id = "ref_dist", type = "track", val = 2,
+					def = defaults.ref_dist, min = 2, max = 30, step = 1 },
+				{ id = "min_frac", type = "track", val = 2,
+					def = defaults.min_frac, min = 0.05, max = 0.5, step = 0.01 },
+				{ id = "rings",    type = "track", val = 2,
+					def = defaults.rings, min = 1, max = 3, step = 1 },
+				{ id = "opacity",  type = "track", val = 2,
+					def = defaults.opacity, min = 0.2, max = 1.0, step = 0.05 },
+			} },
+			{ id = "categories", sh = true, text = "ui_mcm_sound_vision_section_categories", gr = {
+				{ type = "title", text = "ui_mcm_sound_vision_section_categories" },
+				{ id = "cat_weapon",  type = "check", val = 1, def = defaults.cat_weapon },
+				{ id = "cat_voice",   type = "check", val = 1, def = defaults.cat_voice },
+				{ id = "cat_step",    type = "check", val = 1, def = defaults.cat_step },
+				{ id = "cat_monster", type = "check", val = 1, def = defaults.cat_monster },
+				{ id = "cat_other",   type = "check", val = 1, def = defaults.cat_other },
+			} },
+		}
+	}
+	return op
+end

@@ -1,0 +1,41 @@
+<string_table>
+<!-- Root -->
+<string id="ui_mcm_sound_vision"><text>Sound Vision - visual sound indicator</text></string>
+<!-- Sections -->
+<string id="ui_mcm_sound_vision_section_general"><text>General</text></string>
+<string id="ui_mcm_sound_vision_section_size"><text>Size and animation</text></string>
+<string id="ui_mcm_sound_vision_section_categories"><text>Sound types</text></string>
+<!-- General -->
+<string id="ui_mcm_sound_vision_general_enabled"><text>Enable mod</text></string>
+<string id="ui_mcm_sound_vision_general_enabled_desc"><text>Draw expanding rings on screen at the position of any sound source, even through walls.</text></string>
+<string id="ui_mcm_sound_vision_general_show_own"><text>Show my own sounds</text></string>
+<string id="ui_mcm_sound_vision_general_show_own_desc"><text>Show rings for the player's own footsteps and gunshots. Off by default - you always feel your own sounds.</text></string>
+<string id="ui_mcm_sound_vision_general_max_dist"><text>Detection range (m)</text></string>
+<string id="ui_mcm_sound_vision_general_max_dist_desc"><text>Sounds farther than this distance from the player are not shown.</text></string>
+<string id="ui_mcm_sound_vision_general_lifetime"><text>Wave lifetime (sec)</text></string>
+<string id="ui_mcm_sound_vision_general_lifetime_desc"><text>How long one expanding wave lives before fading out.</text></string>
+<string id="ui_mcm_sound_vision_general_throttle"><text>Per-source delay (sec)</text></string>
+<string id="ui_mcm_sound_vision_general_throttle_desc"><text>Minimum pause between waves from the same sound source. Smaller = more waves, more clutter.</text></string>
+<!-- Size -->
+<string id="ui_mcm_sound_vision_size_size_px"><text>Ring size (px)</text></string>
+<string id="ui_mcm_sound_vision_size_size_px_desc"><text>Size of the ring for a close sound source (in HUD virtual pixels).</text></string>
+<string id="ui_mcm_sound_vision_size_ref_dist"><text>Reference distance (m)</text></string>
+<string id="ui_mcm_sound_vision_size_ref_dist_desc"><text>At this distance a ring has full size. Farther sources get smaller rings.</text></string>
+<string id="ui_mcm_sound_vision_size_min_frac"><text>Minimum size (fraction)</text></string>
+<string id="ui_mcm_sound_vision_size_min_frac_desc"><text>How small the ring can get for the farthest sounds (0.05-0.5 of full size).</text></string>
+<string id="ui_mcm_sound_vision_size_rings"><text>Waves per sound</text></string>
+<string id="ui_mcm_sound_vision_size_rings_desc"><text>How many expanding rings are drawn for one sound (1-3, sonar style).</text></string>
+<string id="ui_mcm_sound_vision_size_opacity"><text>Brightness</text></string>
+<string id="ui_mcm_sound_vision_size_opacity_desc"><text>Overall opacity of the rings (0.2-1.0).</text></string>
+<!-- Categories -->
+<string id="ui_mcm_sound_vision_categories_cat_weapon"><text>Gunshots and weapons</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_weapon_desc"><text>Red rings: shots, explosions, grenades.</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_voice"><text>Voice and speech</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_voice_desc"><text>White rings: talking, shouts, screams, pain cries.</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_step"><text>Footsteps and movement</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_step_desc"><text>Yellow rings: anyone walking or running nearby, even behind walls.</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_monster"><text>Monsters</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_monster_desc"><text>Purple rings: mutant sounds - steps, growls, attacks.</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_other"><text>Physics and other</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_other_desc"><text>Blue rings: dropped items, doors, object collisions.</text></string>
+</string_table>
