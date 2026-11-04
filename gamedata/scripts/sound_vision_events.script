@@ -49,6 +49,10 @@
 local POOL = 32        -- всего колец на экране (XML: ring_1..ring_32)
 local HEAR_CAP = 150   -- предел показа по громкости, м: дальше аудио игрока уже
                        -- не различает источник, а обратный квадрат там неточен
+-- Потолок дальности по категориям (v2.5): техника громче стрелкового звука -
+-- винт вертолёта различим за сотни метров (якорь ANV_HELI даёт слышимость
+-- до ~820 м, потолок резервирует запас до HELI_MAX_D из sound_vision).
+local KIND_CAP = { vehicle = 600 }
 local events = {}      -- {id,x,y,z,kind,scale,t,loud,d,dead, blend,last_sx,last_sy,pin_x,pin_y}
 local throttle_t = {}  -- ключ источника -> time_global последнего события
 local seq = 0          -- сквозной номер события (связывает QUEUE и RENDER в логе)
@@ -126,10 +130,11 @@ local function push_event(x, y, z, kind, who, force, loud)
                         end
                         return
                 end
-                if d > HEAR_CAP then
+                if d > (KIND_CAP[kind] or HEAR_CAP) then
                         if dbg and rate("cap_" .. tostring(who or kind), 1000) then
                                 dbg("GATE", "rejected (too far): kind=%s who=%s d=%.0fm > %dm loud=%.3f",
-                                        tostring(kind), tostring(who), d, HEAR_CAP, loud)
+                                        tostring(kind), tostring(who), d,
+                                        KIND_CAP[kind] or HEAR_CAP, loud)
                         end
                         return
                 end

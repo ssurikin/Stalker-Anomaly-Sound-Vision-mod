@@ -21,6 +21,16 @@
 -- Источники без движковых данных (опрос мира: шаги/физика/зоны) несут
 -- громкость от виртуальных якорей - см. sound_vision_detect.
 --
+-- Кто слышнее - тот и получает кольцо (v2.5). Для WPN_* событий решается,
+-- что показывать: стрелка (якорь типа звука на его дистанции - он слышен)
+-- или точку попадания пули (стрелок не слышен, а попадание рядом с игроком
+-- слышно - "входящий огонь", громкость переносом замера ИИ-слушателя).
+-- Вертолёты: винт - цикличный звук без ИИ-рассылки, канал слуха о полёте
+-- молчит, но ПУЛИ приходят с who_id техники - она запоминается и пульсирует
+-- оранжевым kind="vehicle" в живой позиции (свой потолок дальности в
+-- sound_vision_events). Методы сталкеров (active_item) у техники не
+-- щупаются: биндинг движка печатает ошибки в лог даже под pcall.
+--
 -- Архитектура (SRP: один модуль - одна ответственность, зависимости
 -- однонаправленные, связывание ленивое через глобальные таблицы модулей):
 --   sound_vision_config     - настройки (кэш значений MCM);
@@ -133,6 +143,32 @@ local ANV_RELOAD   = { 12, 0.22 }  -- перезарядка
 local WPN_ANV_EMPTY = { 8, 0.15 }  -- сухой щелчок: вблизи
 local WPN_ANV_DRAW  = { 8, 0.12 }  -- достал/убрал оружие
 
+-- Техника в слуховом канале (v2.5). Вертолёт движок о себе не сообщает:
+-- винт - цикличный звук, ИИ его не рассылает, в npc_on_hear_callback он не
+-- приходит. Но ПУЛИ вертолёта приходят (WPN_* с who_id техники), а сама
+-- техника - живой game object по who_id. Каждое такое событие обновляет
+-- наблюдение (TTL), а кадровой петлёй техника пульсирует оранжевым кольцом
+-- kind="vehicle" в своей живой позиции - «звук полёта» для слабослышащего.
+local HELI_TTL_MS   = 90000   -- держим наблюдение столько после последней пули
+local HELI_PULSE_MS = 3000    -- период пульса кольца техники
+local HELI_MAX_D    = 600     -- дальше винт не даёт направления - не пульсируем
+local ANV_HELI      = { 150, 0.60 } -- винт слышен очень далеко: до ~820 м
+local heli_watch    = {}      -- [id техники] = time_global последнего слухового события
+local heli_pulse_t  = 0       -- таймер пульса
+
+-- Техника ли это: у вертолётов Anomaly имя и секция объекта - секция отряда
+-- (simulation_helicopter_*), в ней есть "heli". Только строки, никаких
+-- обращений к методам объекта: у техники они отсутствуют и сыплют ошибки.
+local function is_vehicle_obj(o)
+        if not o then return false end
+        local ok_n, nm = pcall(o.name, o)
+        if ok_n and type(nm) == "string" and string.find(string.lower(nm), "heli", 1, true) then
+                return true
+        end
+        local ok_s, sec = pcall(o.section, o)
+        return ok_s and type(sec) == "string" and string.find(string.lower(sec), "heli", 1, true) ~= nil
+end
+
 -- Выбор якоря по строке типа; глушитель - по активному оружию стрелка.
 local function wpn_anchor(s_type, src)
         local stl = string.lower(s_type)
@@ -141,10 +177,19 @@ local function wpn_anchor(s_type, src)
         if string.find(stl, "show", 1, true) or string.find(stl, "hide", 1, true) then
                 return WPN_ANV_DRAW, "draw"
         end
-        -- shoot/hit и неизвестные строки паков - полный выстрел
+        -- shoot/hit и неизвестные строки паков - полный выстрел.
+        -- Глушитель читается только из оружия СТАЛКЕРА: active_item есть
+        -- не у всех game object. У вертолётов/техники обращение к методу
+        -- бросает ошибку биндинга ("CScriptGameObject: cannot access class
+        -- member ...") - она печатается в лог игры даже под pcall (v2.5:
+        -- лог боя с вертолётом был завален такими строками). Поэтому метод
+        -- щупаем только у живых людей, технике - полный выстрел без проверки.
         if src then
-                local ok, item = pcall(src.active_item, src)
-                if ok and item and is_silenced(item) then return ANV_SHOT_SIL, "shot_sil" end
+                local ok_s, is_st = pcall(IsStalker, src)
+                if ok_s and is_st then
+                        local ok, item = pcall(src.active_item, src)
+                        if ok and item and is_silenced(item) then return ANV_SHOT_SIL, "shot_sil" end
+                end
         end
         return ANV_SHOT, "shot"
 end
@@ -205,6 +250,11 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
         if type(who_id) == "number" then
                 local ok, o = pcall(function() return level.object_by_id(who_id) end)
                 if ok then src = o end
+                -- Техника (v2.5): событие от вертолёта обновляет наблюдение,
+                -- по нему кадровая петля пульсирует кольцом полёта.
+                if src and is_vehicle_obj(src) then
+                        heli_watch[who_id] = time_global()
+                end
         end
         -- Шаги и речь людей приходят с тем же префиксом MST_, что и у мутантов
         -- (классификатор видит "mst" раньше "step"/"talk"), и сталкер в бою
@@ -220,18 +270,34 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                         end
                 end
         end
-        -- Якорь выстрела - СТРЕЛОК, а не точка звука движка (v2.3).
+        -- Якорь WPN_*: СТРЕЛКОВ или ТОЧКУ ПОПАДАНИЯ - кто слышнее (v2.3+v2.5).
         -- Для WPN_* движок отдаёт pos = позиция ПУЛИ (см. блок сигнатуры выше):
         -- кольца вспыхивали у ног игрока (пуля рядом) или отклонялись гейтом
-        -- (промах улетел за спину). who_id - источник звука, его живая позиция
-        -- известна всегда: якоримся на неё. Работает с любым паком: ни звука,
-        -- ни секции оружия знать не надо. Позиции гранат/взрывов (строки без
-        -- префикса WPN_) не трогаем - там точка взрыва полезнее, а валидные
-        -- WPN_shoot/WPN_reload и так стоят на стрелке (сдвиг < 2 м - перекладки
-        -- нет, замер громкости движка остаётся честным).
+        -- (промах улетел за спину). Считаются ОБА кандидата, кольцо получает
+        -- слышимый:
+        --   стрелок слышен (якорь типа звука на его дистанции, v2.4) ->
+        --     кольцо на стрелке: направление на угрозу, стабильно от боя к бою;
+        --   стрелок не слышен, а попадание у игрока слышно -> ВХОДЯЩИЙ ОГОНЬ
+        --     (v2.5): кольцо остаётся в точке движка, громкость - перенос
+        --     замера у ИИ-слушателя на игрока обратным квадратом. Случай
+        --     вертолёта: стрелок за 300+ м якорь не проходит (0.004 < 0.02),
+        --     а его пули крошат землю в 7-25 м от игрока (p до 0.76);
+        --   не слышно ни того, ни другого -> кольцо на стрелке, гейт решит
+        --     (как в v2.4). Гранаты/взрывы (строки без префикса WPN_) не
+        --     трогаем - там точка взрыва полезнее, а сдвиг < 2 м - перекладки
+        --     нет, замер громкости движка остаётся честным.
         local anch = pos          -- куда ставим кольцо
         local anch_from = nil     -- дистанция до точки движка (для строки журнала)
         local anch_anv, anch_anv_name = nil, nil
+        local anch_im = nil       -- v2.5: громкость входящего огня (перенос замера)
+        local anch_sh_d = nil     -- дистанция до стрелка (для строки журнала)
+        -- dl нужен до якорения: кандидат «попадание» считается от замера у
+        -- ИИ-слушателя
+        local dl
+        if type(power) == "number" and type(dist) == "number" and power > 0 then
+                dl = math.sqrt(dist)                   -- в xr_hear: distance_to_sqr!
+                if dl < 0.5 then dl = 0.5 end          -- слушатель вплотную
+        end
         if kind == "weapon" and type(s_type) == "string" and src
                 and string.find(string.lower(s_type), "wpn", 1, true) == 1 then
                 local ok2, ep = pcall(src.position, src)
@@ -242,17 +308,40 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                         local d_em = math.sqrt(ex * ex + ey * ey + ez * ez)
                         local d_en = math.sqrt(px * px + py * py + pz * pz)
                         if math.abs(d_em - d_en) > 2 then
-                                anch = ep
-                                anch_from = d_en
-                                -- Замер громкости мерился у слушателя ПУЛИ и после
-                                -- переноса на стрелка теряет смысл: у близкого к пуле
-                                -- слушателя dl мал, громкость обрушается (тот же
-                                -- выстрел: 0.010 при слушателе в 3 м против 0.170
-                                -- при слушателе в 19 м) - метка «моргала». Для
-                                -- перенесённых событий громкость - от виртуального
-                                -- якоря типа звука: зависит только от дистанции до
-                                -- стрелка (v2.4).
-                                anch_anv, anch_anv_name = wpn_anchor(s_type, src)
+                                local anv, anv_name = wpn_anchor(s_type, src)
+                                -- Кандидат «стрелок» (v2.4): громкость от якоря
+                                -- типа звука на дистанции стрелка - стабильна,
+                                -- не зависит от того, кто из NPC услышал пулю.
+                                local loud_sh = anchor_loud(anv, d_em)
+                                -- Кандидат «попадание» (v2.5): замер у ИИ-слушателя
+                                -- пули переносится на игрока обратным квадратом
+                                -- (децибельная модель расхождения фронта).
+                                local loud_im
+                                if dl then
+                                        if d_en < 0.5 then
+                                                loud_im = 1             -- попадание у самого игрока
+                                        else
+                                                loud_im = power * (dl / d_en) * (dl / d_en)
+                                                if loud_im > 1 then loud_im = 1 end
+                                        end
+                                end
+                                local cmod = sound_vision_config
+                                local th = (cmod and cmod.mc and cmod.mc.loud_th) or 0.02
+                                if loud_sh >= th or not (loud_im and loud_im >= th) then
+                                        -- стрелок слышим, либо попадание неслышимо:
+                                        -- кольцо на стрелке (v2.4), гейт подтвердит
+                                        anch = ep
+                                        anch_from = d_en
+                                        anch_sh_d = d_em
+                                        anch_anv, anch_anv_name = anv, anv_name
+                                else
+                                        -- входящий огонь (v2.5): стрелок не слышен,
+                                        -- попадание слышно - кольцо в точке движка
+                                        anch = pos
+                                        anch_from = d_en
+                                        anch_sh_d = d_em
+                                        anch_im = loud_im
+                                end
                         end
                 end
         end
@@ -260,22 +349,17 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
         -- на dl метрах от источника движок насчитал power; громкость падает
         -- обратным квадратом (дБ-модель расхождения фронта), значит у игрока
         -- (dp метров) она равна power * (dl/dp)^2. Ближе слушателя - громче,
-        -- дальше - тише. Модель линейного затухания движка консервативнее,
-        -- поэтому на большой дальности мы скорее ПОКАЖЕМ слышимый звук, чем
-        -- спрячем (для accessibility это правильная сторона ошибки).
-        -- dl здесь - расстояние слушатель<->пуля (движок привязал событие к
-        -- снаряду), dp - игрок<->стрелок: приближение одного порядка, для
-        -- решения «видно/не видно» достаточно (проверено логом GAMMA:
-        -- 0.013 -> 0.175 на тех же событиях).
+        -- дальше - тише. Для входящего огня громкость уже посчитана переносом
+        -- замера (anch_im); для якоренного выстрела - якорь типа звука (v2.4).
         local loud = nil
-        local dl, dp
-        if type(power) == "number" and type(dist) == "number" and power > 0 then
-                dl = math.sqrt(dist)                   -- в xr_hear: distance_to_sqr!
-                if dl < 0.5 then dl = 0.5 end          -- слушатель вплотную
+        local dp
+        if dl then
                 local p = a:position()
                 local dx, dy, dz = anch.x - p.x, anch.y - p.y, anch.z - p.z
                 dp = math.sqrt(dx * dx + dy * dy + dz * dz)
-                if dp < 0.5 then
+                if anch_im then
+                        loud = anch_im                  -- входящий огонь: перенос замера
+                elseif dp < 0.5 then
                         loud = 1                        -- источник у самого игрока
                 elseif anch_anv then
                         loud = anchor_loud(anch_anv, dp) -- стабильный якорь выстрела
@@ -287,6 +371,15 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
         -- Журнал (MCM: Отладка): событие слуха ПОЙМАНО; дальше решение очереди
         -- пишут GATE/QUEUE, вывод кольца - RENDER (см. sound_vision_log).
         if L and L.on() then
+                local extra
+                if anch_im then
+                        extra = string.format(
+                                " (incoming fire: shooter %.0fm below threshold -> impact ring, im=%.3f)",
+                                anch_sh_d or 0, anch_im)
+                elseif anch_from then
+                        extra = string.format(" (anchored: pos %.0fm -> shooter %.0fm, anv=%s)",
+                                anch_from, anch_sh_d or 0, tostring(anch_anv_name))
+                end
                 L.dbg("HEAR", "caught: s_type='%s' who=%s dl=%s p=%s -> %s loud=%s dp=%s%s",
                         tostring(s_type), L.who(who_id),
                         dl and string.format("%.1fm", dl) or "?",
@@ -294,9 +387,7 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                         tostring(kind),
                         loud and string.format("%.3f", loud) or "n/a",
                         dp and string.format("%.1fm", dp) or "?",
-                        anch_from and string.format(" (anchored: pos %.0fm -> shooter %s, anv=%s)",
-                                anch_from, dp and string.format("%.0fm", dp) or "?",
-                                tostring(anch_anv_name)) or "")
+                        extra or "")
         end
         sound_vision_events.push_event(anch.x, anch.y, anch.z, kind, who_id, nil, loud)
 end
@@ -410,6 +501,51 @@ local function on_item_drop(obj)
 end
 
 -- ---------------------------------------------------------------------------
+-- Пульс техники (v2.5): вертолёт под наблюдением раз в HELI_PULSE_MS пульсирует
+-- оранжевым кольцом kind="vehicle" в своей живой позиции, пока свежи слуховые
+-- события от его пуль (heli_watch). Громкость - от якоря винта ANV_HELI:
+-- винт слышен очень далеко, поэтому у категории vehicle свой потолок дальности
+-- в sound_vision_events (600 м вместо стрелковых 150 м).
+-- ---------------------------------------------------------------------------
+local function pulse_vehicles(now)
+        if next(heli_watch) == nil then return end
+        local a = db.actor
+        if not a then return end
+        if now - heli_pulse_t < HELI_PULSE_MS then return end
+        heli_pulse_t = now
+        local L = _G.sound_vision_log
+        local dbg = (L and L.on()) and L.dbg or nil
+        local ap = a:position()
+        for id, t in pairs(heli_watch) do
+                if now - t > HELI_TTL_MS then
+                        heli_watch[id] = nil
+                        if dbg then dbg("DETECT", "vehicle watch expired: who=%s", L.who(id)) end
+                else
+                        local ok, o = pcall(function() return level.object_by_id(id) end)
+                        if not (ok and o) then
+                                heli_watch[id] = nil
+                                if dbg then dbg("DETECT", "vehicle gone: %s", tostring(id)) end
+                        else
+                                local okp, p = pcall(o.position, o)
+                                if okp and p and p.x then
+                                        local dx, dy, dz = p.x - ap.x, p.y - ap.y, p.z - ap.z
+                                        local d = math.sqrt(dx * dx + dy * dy + dz * dz)
+                                        if d <= HELI_MAX_D then
+                                                local loud = anchor_loud(ANV_HELI, d)
+                                                if dbg then
+                                                        dbg("DETECT", "vehicle pulse: who=%s loud=%.3f d=%.1fm",
+                                                                L.who(id), loud, d)
+                                                end
+                                                sound_vision_events.push_event(p.x, p.y, p.z,
+                                                        "vehicle", "veh" .. id, true, loud)
+                                        end
+                                end
+                        end
+                end
+        end
+end
+
+-- ---------------------------------------------------------------------------
 -- Источник 5: шаги самого игрока.
 -- Ванильная сигнатура: (surface:string, power, is_crouching, flags).
 -- На modded exes первый аргумент - объект, поэтому просто не реагируем
@@ -438,6 +574,7 @@ local function on_actor_update(_, dt)
         local now = time_global()
         -- сначала детект (события этого кадра), потом отрисовка
         sound_vision_detect.update(now)
+        pulse_vehicles(now)   -- техника: пульс кольца вертолёта (v2.5)
         sound_vision_render.update()
 end
 
@@ -465,6 +602,8 @@ local function on_load_state()
         -- новая загрузка: события эфемерны и не сохраняются - чистим всё
         sound_vision_events.clear_all()
         sound_vision_detect.clear()
+        for k in pairs(heli_watch) do heli_watch[k] = nil end
+        heli_pulse_t = 0
         sound_vision_render.hide_all()
         local L = _G.sound_vision_log
         if L then L.clear() end
