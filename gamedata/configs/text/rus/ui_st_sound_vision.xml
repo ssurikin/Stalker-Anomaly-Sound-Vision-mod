@@ -12,7 +12,7 @@
 <string id="ui_mcm_sound_vision_general_show_own"><text>Показывать свои звуки</text></string>
 <string id="ui_mcm_sound_vision_general_show_own_desc"><text>Кольца для собственных шагов и выстрелов игрока. По умолчанию выключено - свои звуки вы ощущаете и так.</text></string>
 <string id="ui_mcm_sound_vision_general_max_dist"><text>Дальность обнаружения (м)</text></string>
-<string id="ui_mcm_sound_vision_general_max_dist_desc"><text>Звуки дальше этого расстояния от игрока не показываются.</text></string>
+<string id="ui_mcm_sound_vision_general_max_dist_desc"><text>Радиус опроса мира (шаги, физика, аномалии). В режиме «по дистанции» (слышимость выключена) - единый предел показа звуков.</text></string>
 <string id="ui_mcm_sound_vision_general_lifetime"><text>Время жизни волны (сек)</text></string>
 <string id="ui_mcm_sound_vision_general_lifetime_desc"><text>Как долго одно расходящееся кольцо расширяется и гаснет.</text></string>
 <string id="ui_mcm_sound_vision_general_throttle"><text>Пауза от одного источника (сек)</text></string>
@@ -48,4 +48,9 @@
 <string id="ui_mcm_sound_vision_detect_phys_enable_desc"><text>Наблюдать за физическими объектами рядом: толкнутая или задетая бочка, скользящая коробка, брошенная граната дают кольца. Отключите, если будет лишний шум на экране.</text></string>
 <string id="ui_mcm_sound_vision_detect_phys_sens"><text>Порог движения объекта (см)</text></string>
 <string id="ui_mcm_sound_vision_detect_phys_sens_desc"><text>Насколько далеко должен сдвинуться объект, чтобы считаться "издающим звук". Меньше - чувствительнее (больше колец). По умолчанию 12 см.</text></string>
+<string id="ui_mcm_sound_vision_section_hearing"><text>Слышимость</text></string>
+<string id="ui_mcm_sound_vision_hearing_by_loudness"><text>Показывать только слышимые звуки</text></string>
+<string id="ui_mcm_sound_vision_hearing_by_loudness_desc"><text>Кольца появляются только для звуков, которые игрок реально слышит: громкость берётся из слуха ИИ движка (затухание с расстоянием и глушение стенами уже учтены движком). Выстрелы видны издалека, шаги - только вблизи. Выключите, чтобы вернуть старый режим с единым радиусом обнаружения (настройка «Дальность обнаружения»).</text></string>
+<string id="ui_mcm_sound_vision_hearing_loud_th"><text>Порог слышимости</text></string>
+<string id="ui_mcm_sound_vision_hearing_loud_th_desc"><text>Минимальная громкость у игрока, при которой рисуется кольцо, в тысячных долях полной громкости. Больше - меньше дальних тихих звуков, меньше - больше колец. По умолчанию 20.</text></string>
 </string_table>

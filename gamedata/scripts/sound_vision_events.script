@@ -1,18 +1,33 @@
 -- ============================================================================
 -- sound_vision_events: очередь событий звука
 --
--- Ответственность (SRP): приём событий (проверка дальности, категорий,
+-- Ответственность (SRP): приём событий (проверка слышимости, категорий,
 -- антиспама одного источника), расчёт масштаба кольца от дистанции,
 -- хранение и жизненный цикл очереди (вытеснение старых, удаление мёртвых,
 -- сбросы состояния). Ничего не знает о проекции и отрисовке.
+--
+-- Слышимость (v2.0). Событие может нести loud - рассчитанную громкость
+-- у ИГРОКА (0..1). Модель движка (xray-monolith, IGame_Level::
+-- SoundEvent_Register): Power = (1 - dist/max_ai_distance) * volume *
+-- occlusion - линейное затухание с учётом глушимости стенами. Событие
+-- от ИИ-слуха якорится наблюдением слушателя (dl, power), громкость у
+-- игрока восстанавливается обратным квадратом (децибельная модель
+-- расхождения фронта): pp = power * (dl/dp)^2. Такой переход не требует
+-- калибровки отдельных источников: выстрел слышен издалека, шаги - нет,
+-- потому что у них меньше исходная громкость, пришедшая из движка.
+-- События опроса мира (шаги/физика/зоны без движковых данных) несут
+-- громкость от виртуальных якорей (d_v, p_v) из sound_vision_detect.
+-- Гейт слышимости: pp >= loud_th (MCM) и dp <= HEAR_CAP (защита от
+-- межкартовых дистанций). Режим "по дистанции" (by_loudness=false)
+-- сохранён как legacy: единый радиус cfg.max_dist.
 --
 -- Зависимости: sound_vision_config, sound_vision_classify (оба лениво -
 -- грузятся позже по алфавиту, разрешаются при первом вызове).
 --
 -- Экспорт:
---   push_event(x, y, z, kind, who, force) - событие в мировой точке
---   push_object(obj, kind, who, force)    - событие в позиции объекта (DRY:
---                                           единая pcall-обёртка obj:position())
+--   push_event(x, y, z, kind, who, force, loud) - событие в мировой точке
+--   push_object(obj, kind, who, force, loud)    - событие в позиции объекта
+--                                           (DRY: единая pcall-обёртка obj:position())
 --   list                                  - живая очередь событий (НЕ мутировать
 --                                           извне: порядок и поля живут здесь)
 --   capacity()                            - ёмкость пула колец (XML ring_1..N)
@@ -25,7 +40,9 @@
 -- ============================================================================
 
 local POOL = 32        -- всего колец на экране (XML: ring_1..ring_32)
-local events = {}      -- {x,y,z,kind,scale,t,dead, blend,last_sx,last_sy,pin_x,pin_y}
+local HEAR_CAP = 150   -- предел показа по громкости, м: дальше аудио игрока уже
+                       -- не различает источник, а обратный квадрат там неточен
+local events = {}      -- {x,y,z,kind,scale,t,loud,dead, blend,last_sx,last_sy,pin_x,pin_y}
 local throttle_t = {}  -- ключ источника -> time_global последнего события
 
 -- Ленивая инициализация. Кэшировать ссылки безопасно: mc живёт одной
@@ -49,8 +66,10 @@ local function max_events()
 end
 
 -- Добавить событие: мировая точка, категория, ключ источника (для антиспама),
--- force - пропустить антиспам (точные активации: шипение зоны и т.п.).
-local function push_event(x, y, z, kind, who, force)
+-- force - пропустить антиспам (точные активации: шипение зоны и т.п.),
+-- loud - громкость у игрока 0..1 (nil = без движковых данных: тогда
+-- действует legacy-гейт по дистанции, как в v1.x).
+local function push_event(x, y, z, kind, who, force, loud)
         init()
         if not cfg or not can_show then return end
         if not cfg.enabled or not can_show(kind) then return end
@@ -59,8 +78,17 @@ local function push_event(x, y, z, kind, who, force)
         local ap = a:position()
         local dx, dy, dz = x - ap.x, y - ap.y, z - ap.z
         local d2 = dx * dx + dy * dy + dz * dz
-        local maxd = cfg.max_dist
-        if d2 > maxd * maxd then return end
+        local d = math.sqrt(d2)
+        -- Гейт слышимости. loud считается отправителем (движковые события -
+        -- через якорь ИИ-наблюдения, опрос мира - через виртуальные якоря).
+        if cfg.by_loudness and loud ~= nil then
+                if loud < cfg.loud_th then return end      -- у игрока тише порога
+                if d > HEAR_CAP then return end            -- абсурдная дальность
+        else
+                -- legacy: единый радиус (режим "по дистанции" либо событие
+                -- без громкости - движковых данных не было)
+                if d > cfg.max_dist then return end
+        end
         local now = time_global()
         if not force then
                 local key = who or 0
@@ -68,8 +96,8 @@ local function push_event(x, y, z, kind, who, force)
                 if lt and (now - lt) < cfg.throttle * 1000 then return end
                 throttle_t[key] = now
         end
-        local d = math.sqrt(d2)
-        -- масштаб размера: чем дальше источник, тем меньше кольцо
+        -- масштаб размера: чем дальше источник, тем меньше кольцо (дистанция
+        -- управляет ТОЛЬКО визуалом: размер и прозрачность, не слышимостью)
         local scale = cfg.ref_dist / math.max(d, 0.5)
         if scale > 1 then scale = 1 end
         if scale < cfg.min_frac then scale = cfg.min_frac end
@@ -79,7 +107,8 @@ local function push_event(x, y, z, kind, who, force)
                 table.remove(events, 1) -- вытесняем самое старое
                 n = n - 1
         end
-        events[n + 1] = { x = x, y = y, z = z, kind = kind, scale = scale, t = now, dead = false }
+        events[n + 1] = { x = x, y = y, z = z, kind = kind, scale = scale,
+                t = now, loud = loud, dead = false }
 end
 
 -- Событие в позиции игрового объекта. Единая обёртка вместо пяти копий
@@ -87,7 +116,7 @@ end
 -- who - строка/число ИЛИ функция(obj) -> ключ: ленивый ключ вычисляется
 -- только после успешного pcall(position), ошибка в нём не роняет колбэк
 -- (точная семантика прежних обработчиков).
-local function push_object(obj, kind, who, force)
+local function push_object(obj, kind, who, force, loud)
         if not obj then return end
         local ok, p = pcall(obj.position, obj)
         if ok and p and p.x then
@@ -97,7 +126,7 @@ local function push_object(obj, kind, who, force)
                         if not ok_key then return end
                         key = k
                 end
-                push_event(p.x, p.y, p.z, kind, key, force)
+                push_event(p.x, p.y, p.z, kind, key, force, loud)
         end
 end
 

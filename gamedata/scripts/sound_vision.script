@@ -4,14 +4,28 @@
 --
 -- Что делает мод: рисует на экране расходящиеся кольца в точке любого звука
 -- (выстрелы, шаги, голос, физика, аномалии) - в том числе сквозь стены.
--- Размер кольца уменьшается с расстоянием до источника. Всё настраивается
--- в MCM (Sound Vision -> настройки).
+-- Слышимость - как в игре: показывается только то, что игрок реально
+-- слышит (громкость из движка), расстояние управляет лишь размером и
+-- прозрачностью кольца. Всё настраивается в MCM.
+--
+-- Слышимость по громкости (v2.0). Движок уже решил, слышен ли звук:
+-- ИИ-слух ослабляет каждый звук линейно с расстоянием и глухостью стен
+-- (xray-monolith, IGame_Level::SoundEvent_Register:
+--   Power = (1 - dist/max_ai_distance) * volume * occlusion).
+-- Колбэк npc_on_hear_callback отдаёт это ослабленное значение (power) и
+-- квадрат расстояния до слушателя. Мы восстанавливаем громкость у ИГРОКА
+-- обратным квадратом от якоря ИИ-наблюдения:
+--   loud = power * (dl/dp)^2,  dl - ИИ-слушатель, dp - игрок.
+-- Показываем событие, если loud >= порога (MCM) - никакой калибровки
+-- отдельных источников: громкий выстрел виден издалека, тихий шаг - нет.
+-- Источники без движковых данных (опрос мира: шаги/физика/зоны) несут
+-- громкость от виртуальных якорей - см. sound_vision_detect.
 --
 -- Архитектура (SRP: один модуль - одна ответственность, зависимости
 -- однонаправленные, связывание ленивое через глобальные таблицы модулей):
 --   sound_vision_config     - настройки (кэш значений MCM);
 --   sound_vision_classify   - классификация звука по типу, цвета категорий;
---   sound_vision_events     - очередь событий: дальность, антиспам, масштаб;
+--   sound_vision_events     - очередь событий: слышимость, антиспам, масштаб;
 --   sound_vision_detect     - опрос мира: шаги, физика, зоны, болт (4 Гц);
 --   sound_vision_projection - мир -> HUD: проекция и пин к краю экрана;
 --   sound_vision_render     - пул колец, анимация, сглаживание переходов;
@@ -25,7 +39,7 @@
 --
 -- Источники событий (без перезаписи чужих файлов, только добавление):
 --   1) npc_on_hear_callback (ванильный) - ИИ-слух: любой NPC/монстр что-то
---      услышал (выстрел, шаг, голос, падение и т.д.)
+--      услышал (выстрел, голос, шаги монстра, физика) - с громкостью
 --   2) anomaly_on_before_activate (ванильный) - аномалия активируется
 --      (шипение): болт, NPC, мутант попали в зону
 --   3) actor_on_feeling_anomaly (ванильный) - игрок вошёл в поле аномалии
@@ -37,6 +51,8 @@
 --
 -- Сигнатуры и паттерны взяты из:
 --   robe127.github.io/stalker-anomaly-modding-guide (callbacks-reference)
+--   исходников движка (github.com/themrdemonized/xray-monolith):
+--   xr_hear.script, xr_motivator.script, IGame_Level.cpp, step_manager.cpp
 --   исходников MCM 1.7 (github.com/RAX-Anomaly/Anomaly-Mod-Configuration-Menu)
 --   реальных аддонов: Twitch Integration (мультифайловая структура,
 --   ленивый экспорт модулей), targetID, Stealth Overhaul Reworked.
@@ -49,8 +65,19 @@
 -- ---------------------------------------------------------------------------
 
 -- Источник 1: слух NPC (движок -> скрипт).
--- Сигнатура (Anomaly 1.5.x):
---   npc_on_hear_callback(npc, who_id, s_type, dist, sound_power, sound_position)
+-- Реальная цепочка (xray-monolith): CScriptEntity::process_sound_callbacks
+-- -> xr_hear.hear_callback -> SendScriptCallback("npc_on_hear_callback", ...).
+-- Сигнатура (Anomaly 1.5.x, проверена по xr_hear.script):
+--   npc_on_hear_callback(npc, who_id, s_type, sound_dist, sound_power, sound_position)
+--     s_type     - СТРОКА: "WPN_shoot", "WPN_hit", "WPN_reload", "WPN_empty",
+--                  "MST_step", "MST_attack", "MST_die", "ITM_drop" и т.д.;
+--     sound_dist - КВАДРАТ расстояния слушатель<->источник (distance_to_sqr!);
+--     sound_power- громкость у слушателя 0..1: движок уже ослабил звук
+--                  линейно по расстоянию и стенам:
+--                  Power = (1 - dist/max_ai_distance) * volume * occlusion.
+-- Актёр слушателем не отчитывается (CActor::feel_sound_new не диспатчит
+-- в Lua), поэтому мир видим "через уши ИИ"; свои звуки приходят, когда их
+-- слышит кто-то из NPC (who_id == id игрока).
 local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
         if not pos or pos.x == nil then return end
         local a = db.actor
@@ -60,35 +87,98 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                 sound_vision_events.push_event(a:position().x, a:position().y, a:position().z, "own", a:id())
                 return
         end
-        sound_vision_events.push_event(pos.x, pos.y, pos.z, sound_vision_classify.classify(s_type), who_id)
+        -- Восстановление громкости у игрока из якоря ИИ-наблюдения:
+        -- на dl метрах от источника движок насчитал power; громкость падает
+        -- обратным квадратом (дБ-модель расхождения фронта), значит у игрока
+        -- (dp метров) она равна power * (dl/dp)^2. Ближе слушателя - громче,
+        -- дальше - тише. Модель линейного затухания движка консервативнее,
+        -- поэтому на большой дальности мы скорее ПОКАЖЕМ слышимый звук, чем
+        -- спрячем (для accessibility это правильная сторона ошибки).
+        local loud = nil
+        if type(power) == "number" and type(dist) == "number" and power > 0 then
+                local dl = math.sqrt(dist)             -- в xr_hear: distance_to_sqr!
+                if dl < 0.5 then dl = 0.5 end          -- слушатель вплотную
+                local p = a:position()
+                local dx, dy, dz = pos.x - p.x, pos.y - p.y, pos.z - p.z
+                local dp = math.sqrt(dx * dx + dy * dy + dz * dz)
+                if dp < 0.5 then
+                        loud = 1                        -- источник у самого игрока
+                else
+                        loud = power * (dl / dp) * (dl / dp)
+                        if loud > 1 then loud = 1 end
+                end
+        end
+        sound_vision_events.push_event(pos.x, pos.y, pos.z,
+                sound_vision_classify.classify(s_type), who_id, nil, loud)
+end
+
+-- Виртуальные якоря громкости для глухих колбэков (без аудио-данных):
+-- { d_v, p_v } - на d_v метрах от источника громкость p_v, дальше -
+-- обратный квадрат. Формула единая с sound_vision_detect.
+local ANV_ZONE_ACT = { 12, 0.30 }   -- шипение активации зоны: слышно до ~46 м
+local ANV_PHYS_HIT  = { 10, 0.20 }  -- удар по бочке/ящику: до ~30 м
+local ANV_PHYS_DROP = { 8, 0.15 }   -- выброшенный предмет: до ~22 м
+
+-- Расстояние от игрока до объекта (nil, если позиция недоступна).
+local function dist_to_actor(obj)
+        local a = db.actor
+        if not a or not obj then return nil end
+        local ok, p = pcall(obj.position, obj)
+        if not (ok and p and p.x) then return nil end
+        local ap = a:position()
+        local dx, dy, dz = p.x - ap.x, p.y - ap.y, p.z - ap.z
+        return math.sqrt(dx * dx + dy * dy + dz * dz)
+end
+
+-- Громкость у игрока от виртуального якоря: pp = p_v * (d_v/dp)^2.
+local function anchor_loud(anv, dp)
+        if not dp or dp < 0.5 then return 1 end
+        local pp = anv[2] * (anv[1] / dp) * (anv[1] / dp)
+        if pp > 1 then pp = 1 end
+        return pp
 end
 
 -- Источник 2: колбэки аномалий (ванильные, см. callbacks-reference).
 local function on_anomaly_activate(anomaly, activator)
         -- игрок/болт/NPC попали в зону: она шипит - немедленный импульс
-        sound_vision_events.push_object(anomaly, "anomaly", function(an) return "anm" .. an:id() end, true)
+        sound_vision_events.push_object(anomaly, "anomaly",
+                function(an) return "anm" .. an:id() end, true,
+                anchor_loud(ANV_ZONE_ACT, dist_to_actor(anomaly)))
 end
 
 local function on_actor_feel_anomaly(anomaly, flags)
         -- игрок вошёл в поле: зона шипит - немедленный импульс
-        sound_vision_events.push_object(anomaly, "anomaly", function(an) return "anm" .. an:id() end, true)
+        sound_vision_events.push_object(anomaly, "anomaly",
+                function(an) return "anm" .. an:id() end, true,
+                anchor_loud(ANV_ZONE_ACT, dist_to_actor(anomaly)))
 end
 
 -- ---------------------------------------------------------------------------
 -- Источник 3: физика (ванильные колбэки; движение объектов ловит detect).
+-- Аудио-данных колбэки не дают - громкость от виртуальных якорей выше.
+-- Удар тем сильнее (amount из колбэка), тем громче:
+-- p_v = 0.08 + 0.15 * amount, ограничено 0.08..0.4.
 -- ---------------------------------------------------------------------------
 local function on_physic_hit(obj, amount, direction, attacker, bone_id)
         if not sound_vision_config.mc.phys_enable then return end
-        sound_vision_events.push_object(obj, "other", function(o) return "ph" .. o:id() end)
+        local pv = 0.08 + 0.15 * (tonumber(amount) or 0)
+        if pv > 0.4 then pv = 0.4 end
+        local loud = anchor_loud({ ANV_PHYS_HIT[1], pv }, dist_to_actor(obj))
+        sound_vision_events.push_object(obj, "other",
+                function(o) return "ph" .. o:id() end, nil, loud)
 end
 
 local function on_physic_use(obj, who)
         if not sound_vision_config.mc.phys_enable then return end
-        sound_vision_events.push_object(obj, "other", function(o) return "pu" .. o:id() end)
+        local loud = anchor_loud(ANV_PHYS_HIT, dist_to_actor(obj))
+        sound_vision_events.push_object(obj, "other",
+                function(o) return "pu" .. o:id() end, nil, loud)
 end
 
 local function on_item_drop(obj)
-        sound_vision_events.push_object(obj, "other", function(o) return "dr" .. o:id() end)
+        local loud = anchor_loud(ANV_PHYS_DROP, dist_to_actor(obj))
+        sound_vision_events.push_object(obj, "other",
+                function(o) return "dr" .. o:id() end, nil, loud)
 end
 
 -- ---------------------------------------------------------------------------

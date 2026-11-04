@@ -10,6 +10,18 @@
 --   - болт: пролетел и остановился рядом с зоной -> активация аномалии.
 -- События отправляет через sound_vision_events, сам ничего не рисует.
 --
+-- Громкость опрошенных источников (v2.0). Опрос - единственный источник
+-- данных там, где движок ничего не сообщает: шаги сталкеров играются через
+-- play_no_feedback без типа (Event_Propagade их не рассылает ИИ), физика
+-- без ИИ-событий, зоны работают на скриптах. Для таких событий громкость
+-- у игрока оценивается виртуальным якорем (d_v, p_v): считается, что на
+-- расстоянии d_v источник имел громкость p_v, дальше - обратный квадрат
+-- pp = p_v * (d_v/dp)^2 (см. sound_vision_events). Якоря подобраны по
+-- слышимости в игре и лежат здесь в одном месте (ANV): это НЕ калибровка
+-- отдельных источников - 4 числа на ВСЕ опрошенные события.
+-- Шаги: громкость растёт со СКОРОСТЬЮ движения (крадётся/идёт/бежит),
+-- измеряемой по смещению между опросами.
+--
 -- Зависимости: sound_vision_config, sound_vision_events (лениво).
 --
 -- Экспорт:
@@ -24,6 +36,17 @@ local BOLT_STOP_MS = 450    -- болт неподвижен столько - о
 local ZONE_NEAR_M  = 3.0    -- ближе стольких метров до центра зоны - она "шипит"
 local ZONE_BOLT_R2 = 64     -- (8 м)^2 - болт остановился рядом с зоной => активация
 local BOLT_FLEW_D2 = 1.0    -- (1 м)^2 - болт должен пролететь хотя бы метр
+
+-- Виртуальные якоря громкости: { d_v, p_v } - на d_v метрах громкость p_v.
+-- Дальше громкость падает обратным квадратом. Подобраны по слышимости
+-- в игре (при пороге по умолчанию 0.02 даёт радиусы: шаги ~15-35 м
+-- по скорости, физика ~20 м, гул зоны ~40 м, шипение ~46 м).
+local ANV_STEP     = { 10, 0.10 }  -- опорная громкость шага (крадущийся)
+local ANV_STEP_RUN = 0.24          -- громкость шага на спринте (якорь тот же)
+local ANV_STEP_V   = 6.0           -- скорость полного "спринтового" шага, м/с
+local ANV_PHYS     = { 8, 0.12 }   -- скольжение/толкание бочек и коробок
+local ANV_ZONE     = { 15, 0.15 }  -- гул аномалии в простое
+local ANV_ZONE_ACT = { 12, 0.30 }  -- шипение активации зоны / вход игрока
 
 local move_timer    = 0
 local cleanup_timer = 0
@@ -45,6 +68,16 @@ local function init()
                         push_event = emod.push_event
                 end
         end
+end
+
+-- Громкость у игрока от виртуального якоря: pp = p_v * (d_v/dp)^2.
+-- Кламп сверху 1: у самого источника громкость не больше единицы.
+local function anchor_loud(anv, dp)
+        local dv, pv = anv[1], anv[2]
+        if dp < 0.5 then return 1 end
+        local pp = pv * (dv / dp) * (dv / dp)
+        if pp > 1 then pp = 1 end
+        return pp
 end
 
 local function starts_with(s, sub)
@@ -96,10 +129,17 @@ local function process_object(o, id, ap, maxd2, now)
                         + (pos.z - lp.z) * (pos.z - lp.z)
         end
 
-        -- 1) живые персонажи: шаги
+        -- 1) живые персонажи: шаги. Громкость - от скорости: крадётся тихо,
+        --    идёт средне, бежит громко (см. ANV_STEP* в шапке).
         if is_mob and o:alive() then
                 if lp and md2 > STEP_MIN_D2 then
-                        push_event(pos.x, pos.y, pos.z, "step", "mv" .. id)
+                        local v = math.sqrt(md2) / (MOVE_POLL_MS / 1000)
+                        local k = v / ANV_STEP_V
+                        if k > 1 then k = 1 end
+                        local pv = ANV_STEP[2] + (ANV_STEP_RUN - ANV_STEP[2]) * k
+                        local dp = math.sqrt(dd2 + (pos.y - ap.y) * (pos.y - ap.y))
+                        push_event(pos.x, pos.y, pos.z, "step", "mv" .. id,
+                                false, anchor_loud({ ANV_STEP[1], pv }, dp))
                 end
                 if lp then
                         lp.x, lp.y, lp.z = pos.x, pos.y, pos.z
@@ -121,10 +161,13 @@ local function process_object(o, id, ap, maxd2, now)
                 zone_pos[id] = { x = pos.x, y = pos.y, z = pos.z }
                 if near and not zs.near then
                         -- подход/вход: зона активируется (шипение)
-                        push_event(pos.x, pos.y, pos.z, "anomaly", "anm" .. id, true)
+                        local dp = d3
+                        push_event(pos.x, pos.y, pos.z, "anomaly", "anm" .. id,
+                                true, anchor_loud(ANV_ZONE_ACT, dp))
                 end
                 if now >= (zs.next or 0) then
-                        push_event(pos.x, pos.y, pos.z, "anomaly", "anm" .. id)
+                        push_event(pos.x, pos.y, pos.z, "anomaly", "anm" .. id,
+                                false, anchor_loud(ANV_ZONE, d3))
                         local interval
                         if near then
                                 interval = 1100 + math.random(0, 400)
@@ -164,7 +207,10 @@ local function process_object(o, id, ap, maxd2, now)
                                 local zid = nearest_zone_id(pos.x, pos.y, pos.z)
                                 if zid then
                                         local zp = zone_pos[zid]
-                                        push_event(zp.x, zp.y, zp.z, "anomaly", "anm_act", true)
+                                        local dzx, dzy, dzz = zp.x - ap.x, zp.y - ap.y, zp.z - ap.z
+                                        local dpz = math.sqrt(dzx * dzx + dzy * dzy + dzz * dzz)
+                                        push_event(zp.x, zp.y, zp.z, "anomaly", "anm_act",
+                                                true, anchor_loud(ANV_ZONE_ACT, dpz))
                                         if zone_state[zid] then
                                                 zone_state[zid].next = now + 1500
                                         end
@@ -177,7 +223,9 @@ local function process_object(o, id, ap, maxd2, now)
         -- 4) физика: трупы, бочки, коробки, гранаты, брошенные вещи
         if cfg.phys_enable and not excluded_section(sec) and lp then
                 if md2 > cfg.phys_sens * cfg.phys_sens then
-                        push_event(pos.x, pos.y, pos.z, "other", "mv" .. id)
+                        local dp = math.sqrt(dd2 + (pos.y - ap.y) * (pos.y - ap.y))
+                        push_event(pos.x, pos.y, pos.z, "other", "mv" .. id,
+                                false, anchor_loud(ANV_PHYS, dp))
                 end
         end
         if lp then
