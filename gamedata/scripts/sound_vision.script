@@ -81,6 +81,74 @@
 -- дальность, антиспам, масштаб) живёт в sound_vision_events.
 -- ---------------------------------------------------------------------------
 
+-- ---------------------------------------------------------------------------
+-- Общие помощники источников: расстояния, виртуальные якоря громкости,
+-- проверка глушителя. Якорь - единая модель с sound_vision_detect:
+-- { d_v, p_v } - на d_v метрах от источника громкость p_v, дальше -
+-- обратный квадрат: pp = p_v * (d_v/dp)^2. Объявлены ДО обработчиков:
+-- колбэки замыкаются на локали.
+-- ---------------------------------------------------------------------------
+
+-- Расстояние от игрока до объекта (nil, если позиция недоступна).
+local function dist_to_actor(obj)
+        local a = db.actor
+        if not a or not obj then return nil end
+        local ok, p = pcall(obj.position, obj)
+        if not (ok and p and p.x) then return nil end
+        local ap = a:position()
+        local dx, dy, dz = p.x - ap.x, p.y - ap.y, p.z - ap.z
+        return math.sqrt(dx * dx + dy * dy + dz * dz)
+end
+
+-- Громкость у игрока от виртуального якоря: pp = p_v * (d_v/dp)^2.
+local function anchor_loud(anv, dp)
+        if not dp or dp < 0.5 then return 1 end
+        local pp = anv[2] * (anv[1] / dp) * (anv[1] / dp)
+        if pp > 1 then pp = 1 end
+        return pp
+end
+
+-- Тихий ли ствол: глушитель пристёгнут (weapon_is_silencer) или интегрирован
+-- в конструкцию (weapon_silencer_status == 2, как у ВСС/Вал). На старых
+-- экзешниках методы могут отсутствовать - pcall, при сомнении громкий якорь.
+local function is_silenced(weapon)
+        if not weapon then return false end
+        local ok, st = pcall(weapon.weapon_silencer_status, weapon)
+        if ok and st == 2 then return true end
+        local ok2, attached = pcall(weapon.weapon_is_silencer, weapon)
+        return ok2 and attached == true
+end
+
+-- Якоря опроса мира и физики (детект не имеет своих данных).
+local ANV_ZONE_ACT = { 12, 0.30 }   -- шипение активации зоны: слышно до ~46 м
+local ANV_PHYS_HIT  = { 10, 0.20 }  -- удар по бочке/ящику: до ~30 м
+local ANV_PHYS_DROP = { 8, 0.15 }   -- выброшенный предмет: до ~22 м
+
+-- Якоря гарантированного канала выстрелов (источник 8 ниже) и переносимых
+-- событий слуха (v2.4): громкость перенесённого выстрела берётся от якоря
+-- типа звука, а не от замера слушателя - стабильна от боя к бою.
+local ANV_SHOT     = { 45, 0.60 }  -- выстрел без глушителя
+local ANV_SHOT_SIL = { 20, 0.30 }  -- выстрел с глушителем
+local ANV_RELOAD   = { 12, 0.22 }  -- перезарядка
+local WPN_ANV_EMPTY = { 8, 0.15 }  -- сухой щелчок: вблизи
+local WPN_ANV_DRAW  = { 8, 0.12 }  -- достал/убрал оружие
+
+-- Выбор якоря по строке типа; глушитель - по активному оружию стрелка.
+local function wpn_anchor(s_type, src)
+        local stl = string.lower(s_type)
+        if string.find(stl, "reload", 1, true) then return ANV_RELOAD, "reload" end
+        if string.find(stl, "empty", 1, true) then return WPN_ANV_EMPTY, "empty" end
+        if string.find(stl, "show", 1, true) or string.find(stl, "hide", 1, true) then
+                return WPN_ANV_DRAW, "draw"
+        end
+        -- shoot/hit и неизвестные строки паков - полный выстрел
+        if src then
+                local ok, item = pcall(src.active_item, src)
+                if ok and item and is_silenced(item) then return ANV_SHOT_SIL, "shot_sil" end
+        end
+        return ANV_SHOT, "shot"
+end
+
 -- Источник 1: слух NPC (движок -> скрипт).
 -- Реальная цепочка (xray-monolith): CScriptEntity::process_sound_callbacks
 -- -> xr_hear.hear_callback -> SendScriptCallback("npc_on_hear_callback", ...).
@@ -131,33 +199,60 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                 return
         end
         local kind = sound_vision_classify.classify(s_type, who_id)
+        -- Источник события: живой объект по who_id. Нужен для перекраски
+        -- человеческих шагов/речи и якорения выстрела на стрелке.
+        local src = nil
+        if type(who_id) == "number" then
+                local ok, o = pcall(function() return level.object_by_id(who_id) end)
+                if ok then src = o end
+        end
+        -- Шаги и речь людей приходят с тем же префиксом MST_, что и у мутантов
+        -- (классификатор видит "mst" раньше "step"/"talk"), и сталкер в бою
+        -- светился фиолетовым «монстром» при каждом шаге. Люди -> жёлтые шаги
+        -- и белая речь; мутанты (IsStalker = false) остаются фиолетовыми.
+        if kind == "monster" and src and type(s_type) == "string" then
+                local ok_h, human = pcall(IsStalker, src)
+                if ok_h and human then
+                        if s_type == "MST_step" then
+                                kind = "step"
+                        elseif s_type == "MST_talk" then
+                                kind = "voice"
+                        end
+                end
+        end
         -- Якорь выстрела - СТРЕЛОК, а не точка звука движка (v2.3).
         -- Для WPN_* движок отдаёт pos = позиция ПУЛИ (см. блок сигнатуры выше):
         -- кольца вспыхивали у ног игрока (пуля рядом) или отклонялись гейтом
-        -- (промах улетел за спину и громкость обрушалась обратным квадратом).
-        -- who_id - источник звука, его живая позиция известна всегда: якоримся
-        -- на неё и громкость пересчитываем до стрелка. Работает с любым паком:
-        -- ни звука, ни секции оружия знать не надо. Позиции гранат/взрывов
-        -- (строки без префикса WPN_) не трогаем - там точка взрыва полезнее,
-        -- а WPN_shoot/WPN_reload у валидных стволов и так стоят на стрелке
-        -- (сдвиг < 2 м - перекладки нет, лог без "anchored").
+        -- (промах улетел за спину). who_id - источник звука, его живая позиция
+        -- известна всегда: якоримся на неё. Работает с любым паком: ни звука,
+        -- ни секции оружия знать не надо. Позиции гранат/взрывов (строки без
+        -- префикса WPN_) не трогаем - там точка взрыва полезнее, а валидные
+        -- WPN_shoot/WPN_reload и так стоят на стрелке (сдвиг < 2 м - перекладки
+        -- нет, замер громкости движка остаётся честным).
         local anch = pos          -- куда ставим кольцо
         local anch_from = nil     -- дистанция до точки движка (для строки журнала)
-        if kind == "weapon" and type(s_type) == "string" and type(who_id) == "number"
+        local anch_anv, anch_anv_name = nil, nil
+        if kind == "weapon" and type(s_type) == "string" and src
                 and string.find(string.lower(s_type), "wpn", 1, true) == 1 then
-                local ok, obj = pcall(function() return level.object_by_id(who_id) end)
-                if ok and obj then
-                        local ok2, ep = pcall(obj.position, obj)
-                        if ok2 and ep and ep.x then
-                                local p0 = a:position()
-                                local ex, ey, ez = ep.x - p0.x, ep.y - p0.y, ep.z - p0.z
-                                local px, py, pz = pos.x - p0.x, pos.y - p0.y, pos.z - p0.z
-                                local d_em = math.sqrt(ex * ex + ey * ey + ez * ez)
-                                local d_en = math.sqrt(px * px + py * py + pz * pz)
-                                if math.abs(d_em - d_en) > 2 then
-                                        anch = ep
-                                        anch_from = d_en
-                                end
+                local ok2, ep = pcall(src.position, src)
+                if ok2 and ep and ep.x then
+                        local p0 = a:position()
+                        local ex, ey, ez = ep.x - p0.x, ep.y - p0.y, ep.z - p0.z
+                        local px, py, pz = pos.x - p0.x, pos.y - p0.y, pos.z - p0.z
+                        local d_em = math.sqrt(ex * ex + ey * ey + ez * ez)
+                        local d_en = math.sqrt(px * px + py * py + pz * pz)
+                        if math.abs(d_em - d_en) > 2 then
+                                anch = ep
+                                anch_from = d_en
+                                -- Замер громкости мерился у слушателя ПУЛИ и после
+                                -- переноса на стрелка теряет смысл: у близкого к пуле
+                                -- слушателя dl мал, громкость обрушается (тот же
+                                -- выстрел: 0.010 при слушателе в 3 м против 0.170
+                                -- при слушателе в 19 м) - метка «моргала». Для
+                                -- перенесённых событий громкость - от виртуального
+                                -- якоря типа звука: зависит только от дистанции до
+                                -- стрелка (v2.4).
+                                anch_anv, anch_anv_name = wpn_anchor(s_type, src)
                         end
                 end
         end
@@ -182,6 +277,8 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                 dp = math.sqrt(dx * dx + dy * dy + dz * dz)
                 if dp < 0.5 then
                         loud = 1                        -- источник у самого игрока
+                elseif anch_anv then
+                        loud = anchor_loud(anch_anv, dp) -- стабильный якорь выстрела
                 else
                         loud = power * (dl / dp) * (dl / dp)
                         if loud > 1 then loud = 1 end
@@ -197,36 +294,11 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                         tostring(kind),
                         loud and string.format("%.3f", loud) or "n/a",
                         dp and string.format("%.1fm", dp) or "?",
-                        anch_from and string.format(" (anchored: pos %.0fm -> shooter %s)",
-                                anch_from, dp and string.format("%.0fm", dp) or "?") or "")
+                        anch_from and string.format(" (anchored: pos %.0fm -> shooter %s, anv=%s)",
+                                anch_from, dp and string.format("%.0fm", dp) or "?",
+                                tostring(anch_anv_name)) or "")
         end
         sound_vision_events.push_event(anch.x, anch.y, anch.z, kind, who_id, nil, loud)
-end
-
--- Виртуальные якоря громкости для глухих колбэков (без аудио-данных):
--- { d_v, p_v } - на d_v метрах от источника громкость p_v, дальше -
--- обратный квадрат. Формула единая с sound_vision_detect.
-local ANV_ZONE_ACT = { 12, 0.30 }   -- шипение активации зоны: слышно до ~46 м
-local ANV_PHYS_HIT  = { 10, 0.20 }  -- удар по бочке/ящику: до ~30 м
-local ANV_PHYS_DROP = { 8, 0.15 }   -- выброшенный предмет: до ~22 м
-
--- Расстояние от игрока до объекта (nil, если позиция недоступна).
-local function dist_to_actor(obj)
-        local a = db.actor
-        if not a or not obj then return nil end
-        local ok, p = pcall(obj.position, obj)
-        if not (ok and p and p.x) then return nil end
-        local ap = a:position()
-        local dx, dy, dz = p.x - ap.x, p.y - ap.y, p.z - ap.z
-        return math.sqrt(dx * dx + dy * dy + dz * dz)
-end
-
--- Громкость у игрока от виртуального якоря: pp = p_v * (d_v/dp)^2.
-local function anchor_loud(anv, dp)
-        if not dp or dp < 0.5 then return 1 end
-        local pp = anv[2] * (anv[1] / dp) * (anv[1] / dp)
-        if pp > 1 then pp = 1 end
-        return pp
 end
 
 -- ---------------------------------------------------------------------------
@@ -242,21 +314,6 @@ end
 -- и выстрела используют одно пространство ключей и в очереди склеиваются,
 -- дублей колец нет.
 -- ---------------------------------------------------------------------------
-local ANV_SHOT     = { 45, 0.60 }  -- выстрел без глушителя
-local ANV_SHOT_SIL = { 20, 0.30 }  -- выстрел с глушителем
-local ANV_RELOAD   = { 12, 0.22 }  -- перезарядка
-
--- Тихий ли ствол: глушитель пристёгнут (weapon_is_silencer) или интегрирован
--- в конструкцию (weapon_silencer_status == 2, как у ВСС/Вал). На старых
--- экзешниках методы могут отсутствовать - pcall, при сомнении громкий якорь.
-local function is_silenced(weapon)
-        if not weapon then return false end
-        local ok, st = pcall(weapon.weapon_silencer_status, weapon)
-        if ok and st == 2 then return true end
-        local ok2, attached = pcall(weapon.weapon_is_silencer, weapon)
-        return ok2 and attached == true
-end
-
 local function on_npc_shot_start(npc, weapon)
         if not sound_vision_config.mc.npc_shots then
                 local L = _G.sound_vision_log

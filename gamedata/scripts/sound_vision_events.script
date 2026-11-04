@@ -26,6 +26,8 @@
 --
 -- Экспорт:
 --   push_event(x, y, z, kind, who, force, loud) - событие в мировой точке
+--                                           (weapon-события одного источника
+--                                           склеиваются в живое кольцо)
 --   push_object(obj, kind, who, force, loud)    - событие в позиции объекта
 --                                           (DRY: единая pcall-обёртка obj:position())
 --   list                                  - живая очередь событий (НЕ мутировать
@@ -145,7 +147,10 @@ local function push_event(x, y, z, kind, who, force, loud)
         end
         local now = time_global()
         if not force then
-                local key = who or 0
+                -- ключ антиспама: категория + источник (v2.4). Общий ключ на
+                -- одного NPC ломал бой: шаги (monster/step) и выстрелы (weapon)
+                -- делили одно окно и съедали паузу друг друга - метки дёргались.
+                local key = tostring(kind) .. "|" .. tostring(who or 0)
                 local lt = throttle_t[key]
                 if lt and (now - lt) < cfg.throttle * 1000 then
                         if dbg and rate("thr_" .. tostring(key), 1000) then
@@ -162,8 +167,32 @@ local function push_event(x, y, z, kind, who, force, loud)
         local scale = cfg.ref_dist / math.max(d, 0.5)
         if scale > 1 then scale = 1 end
         if scale < cfg.min_frac then scale = cfg.min_frac end
-        local n = #events
         local cap = max_events()
+        -- Склейка выстрелов одного источника (v2.4): пока стрелок стреляет,
+        -- его живое кольцо обновляется (позиция, громкость, таймер волны),
+        -- а не плодит дубли. Без склейки очередь в бою переполнялась: метки
+        -- вытесняли друг друга и гасли, не дожив до волны («иногда видно,
+        -- иногда нет»). Кольца слуха (HEAR) и гарантированного канала (SHOT)
+        -- склеиваются в одно - дублей нет. Шаги/физика не склеиваются:
+        -- цепочка колец показывает движение.
+        if kind == "weapon" and who ~= nil then
+                for i = 1, #events do
+                        local e = events[i]
+                        if not e.dead and e.kind == "weapon" and e.src == who then
+                                e.x, e.y, e.z = x, y, z
+                                e.d = d
+                                e.loud = loud
+                                e.scale = scale
+                                e.t = now
+                                if dbg and rate("qr_" .. tostring(who), 500) then
+                                        dbg("QUEUE", "refreshed id=%d kind=weapon who=%s loud=%s d=%.1fm (queue %d/%d)",
+                                                e.id, tostring(who), fmt_loud(loud), d, #events, cap)
+                                end
+                                return
+                        end
+                end
+        end
+        local n = #events
         if n >= cap then
                 if dbg then
                         dbg("QUEUE", "evicted oldest id=%s (queue full %d/%d)",
@@ -174,7 +203,7 @@ local function push_event(x, y, z, kind, who, force, loud)
         end
         seq = seq + 1
         events[n + 1] = { id = seq, x = x, y = y, z = z, kind = kind, scale = scale,
-                t = now, loud = loud, d = d, dead = false }
+                t = now, loud = loud, d = d, dead = false, src = who }
         if dbg then
                 dbg("QUEUE", "accepted id=%d kind=%s who=%s loud=%s d=%.1fm (queue %d/%d)",
                         seq, tostring(kind), tostring(who), fmt_loud(loud), d, n + 1, cap)
