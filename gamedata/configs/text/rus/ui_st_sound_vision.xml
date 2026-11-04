@@ -53,6 +53,26 @@
 <string id="ui_mcm_sound_vision_hearing_by_loudness_desc"><text>С v2.7 все пойманные звуки показываются всегда (гейта громкости больше нет), поэтому настройка влияет только на опрос мира: включено - потолок дальности категории, выключено - единый радиус «Дальность обнаружения». Рекомендуется держать включённой.</text></string>
 <string id="ui_mcm_sound_vision_detect_npc_shots"><text>Гарантированный канал выстрелов</text></string>
 <string id="ui_mcm_sound_vision_detect_npc_shots_desc"><text>Красная метка ставится по факту: раз в 0.2 с у каждого сталкера в 250 м читается счётчик патронов - упал, значит был выстрел. Работает на любой сборке, с любым оружейным паком и для одиночного стрелка, рядом с которым нет других NPC. Плюс: если вас задело - метка сразу ставится на атакующем. Глушители учитываются: тихий ствол виден с меньшей дистанции.</text></string>
+<!-- Виньетка центра (v2.8) -->
+<string id="ui_mcm_sound_vision_section_vignette"><text>Виньетка центра</text></string>
+<string id="ui_mcm_sound_vision_vignette_vign_on"><text>Гасить центр экрана</text></string>
+<string id="ui_mcm_sound_vision_vignette_vign_on_desc"><text>Виньетка-маска: в самом центре экрана (зона прицела) кольца гаснут почти полностью - туда вы смотрите глазами и так видите, что происходит (стрельбу, противников). К краям экрана яркость возвращается до полной, поэтому ничего не теряется.</text></string>
+<string id="ui_mcm_sound_vision_vignette_vign_min"><text>Яркость в центре (%)</text></string>
+<string id="ui_mcm_sound_vision_vignette_vign_min_desc"><text>Сколько от обычной яркости остаётся в самом центре экрана. 10 = примерно десятая часть обычных колец.</text></string>
+<string id="ui_mcm_sound_vision_vignette_vign_core"><text>Радиус тусклой зоны (%)</text></string>
+<string id="ui_mcm_sound_vision_vignette_vign_core_desc"><text>Насколько далеко от центра экрана тянется приглушённая зона, процент пути от центра до края экрана. Внутри неё кольца держат яркость «Яркость в центре».</text></string>
+<string id="ui_mcm_sound_vision_vignette_vign_full"><text>Радиус полной яркости (%)</text></string>
+<string id="ui_mcm_sound_vision_vignette_vign_full_desc"><text>Расстояние от центра, на котором кольца снова становятся полностью яркими, процент пути до края экрана. 100 = у самых краёв. Между тусклой зоной и этим радиусом яркость растёт плавно.</text></string>
+<!-- Стены и видимость (v2.8) -->
+<string id="ui_mcm_sound_vision_section_occlusion"><text>Стены и видимость</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_on"><text>Учёт перекрытия стенами</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_on_desc"><text>Мод проверяет линию видимости до каждого источника звука (луч уровня - экономно и с кэшем). Видимый напрямую источник становится полупрозрачным и не закрывает противника; источник за стеной рисуется мутным размытым ореолом на полной яркости. Закрытые двери луч не видит - такие источники показываются как видимые.</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_visible"><text>Яркость видимых источников (%)</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_visible_desc"><text>Яркость колец источников, которых видно напрямую (между вами нет стены). 40 = прозрачность 60% - подсказка, а не занавес. Источники за стенами сохраняют полную яркость.</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_soft"><text>Размытые ореолы за стенами</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_soft_desc"><text>Источники за стенами рисуются мягкой размытой текстурой (мутный ореол) - зрительная подсказка, что звук идёт из-за препятствия, а не с открытого места.</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_boost"><text>Размер размытого ореола (%)</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_boost_desc"><text>Насколько шире размытый ореол источника за стеной, процент от обычного размера кольца (100 = тот же размер).</text></string>
 <!-- Debug -->
 <string id="ui_mcm_sound_vision_section_debug"><text>Отладка</text></string>
 <string id="ui_mcm_sound_vision_debug_debug_logs"><text>Журнал отладки</text></string>

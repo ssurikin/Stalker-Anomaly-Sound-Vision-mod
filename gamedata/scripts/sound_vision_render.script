@@ -10,9 +10,41 @@
 -- края"; слышимость (показывать ли событие) решается в очереди по
 -- громкости и сюда не входит.
 --
+-- Виньетка центра (v2.8). Игрок, смотрящий в центр экрана, видит обстановку
+-- глазами: стрельбу, противников, прицел - индикация там не нужна и только
+-- мешает. Фактор виньетки зависит от угловой удалённости точки отрисовки
+-- от центра: в ядре остаётся vign_min от текущей альфы (по умолчанию 10%),
+-- дальше плавно (smoothstep) растёт до полной к vign_full. Пинятые к краю
+-- кольца не затрагиваются (r ~ 1) - направление на звук за спиной видно
+-- как и раньше.
+--
+-- Учёт перекрытия (v2.8). Состояние "виден напрямую / за стеной" даёт
+-- sound_vision_occlusion (кэш и бюджет лучей - там). Правила:
+--   - источник ВИДЕН напрямую - альфа умножается на occ_visible
+--     (по умолчанию 40%: полупрозрачен на 60%, не закрывает противника);
+--   - источник ЗА СТЕНОЙ - альфа без изменений, но ореол "мутный": мягкая
+--     размытая текстура (второй пул ring_s_*) и раздувание размера
+--     occ_boost - размытость без потери заметности;
+--   - признака нет (старая сборка, бюджет лучей) - как в v2.7.
+--
+-- Переключение текстур (v2.8) - КРОССФЕЙД, а не подмена пула. Обе текстуры
+-- рисуются ОДНОВРЕМЕННО с комплементарными весами: жёсткая с весом
+-- (1 - occ_s), мягкая с весом occ_s; оба веса идут через экспоненциальное
+-- сглаживание (OCC_TAU_MS). Текстуры концентричны (мягкая - гауссово
+-- размытие жёсткой, тот же центр и радиус), поэтому переход поточечно
+-- монотонен: ни скачка яркости, ни смены позиции/фазы волны - у стены
+-- кольцо плавно "расплывается", при выходе из-за стены так же плавно
+-- собирается обратно. Динамичный источник (NPC у угла дома, перебегающий
+-- проём) может сменить состояние много раз за жизнь кольца - каждый
+-- переход это плавный морф, а не подмена картинки одним кадром.
+-- Источник, чей луч не влез в бюджет кадра, держит ПРОШЛОЕ состояние
+-- (без пульсации "виден/за стеной"); при выключенной фиче - плавный
+-- возврат к поведению v2.7.
+--
 -- Зависимости (все лениво): sound_vision_config (настройки),
 -- sound_vision_classify (цвета), sound_vision_events (очередь),
--- sound_vision_projection (проекция и границы экрана).
+-- sound_vision_projection (проекция и границы экрана),
+-- sound_vision_occlusion (виден напрямую / за стеной).
 --
 -- Экспорт:
 --   create()     - создать HUD и добавить в рендер (идемпотентно)
@@ -26,17 +58,83 @@
 -- меньше = резче, больше = плавнее доезд
 local EDGE_BLEND_TAU = 120
 
+-- постоянная времени сглаживания состояния окклюзии, мс. Именно ею живёт
+-- кроссфейд текстур, поэтому она заметно больше EDGE_BLEND_TAU: в переходе
+-- альфа мягкой текстуры = occ_s * occ_a, где растут/падают ОБА множителя
+-- сразу - эффективная скорость морфа вдвое выше тау. При 200 мс полный
+-- переход занимает ~0.4-0.6 с без единого скачка, а источник, качающийся
+-- на углу дома, "дышит" между чётким кольцом и мутным ореолом вместо
+-- хлопанья текстурой
+local OCC_TAU_MS = 200
+
 local tmp_v2 = vector2()
 
 -- Ленивая инициализация зависимостей (грузятся позже по алфавиту).
-local cfg, color_of, ev, proj
+local cfg, color_of, ev, proj, occ
 local function init()
         if not cfg then
                 cfg        = _G.sound_vision_config and _G.sound_vision_config.mc
                 color_of   = _G.sound_vision_classify and _G.sound_vision_classify.color_of
                 ev         = _G.sound_vision_events
                 proj       = _G.sound_vision_projection
+                occ        = _G.sound_vision_occlusion
         end
+end
+
+-- ---------------------------------------------------------------------------
+-- Экспоненциальное сглаживание множителей окклюзии (по образцу blend ниже):
+-- первое значение принимается сразу, дальше - плавный доезд до цели.
+-- ---------------------------------------------------------------------------
+local function ease(cur, target, dt, tau)
+        if cur == nil then return target end
+        if dt <= 0 then return cur end
+        local v = cur + (target - cur) * (1 - math.exp(-dt / tau))
+        if math.abs(target - v) < 0.01 then v = target end
+        return v
+end
+
+-- ---------------------------------------------------------------------------
+-- Отрисовка одного элемента кольца (общая для обоих пулов). al <= 0.03 -
+-- элемент скрывается: и экономим отрисовку, и не держим призраков.
+-- Функция уровня файла: ни замыканий, ни аллокаций в горячем пути кадра.
+-- ---------------------------------------------------------------------------
+local function draw_ring(el, px, py, s, al, col, can_resize)
+        if al > 0.03 then
+                el:Show(true)
+                -- (px,py) - ЦЕНТР кольца в обоих состояниях:
+                -- нет сдвига на пол-кольца при переходе
+                el:SetWndPos(tmp_v2:set(px - s * 0.5, py - s * 0.5))
+                if can_resize then
+                        el:SetWndSize(tmp_v2:set(s, s))
+                end
+                el:SetTextureColor(GetARGB(math.floor(al * 255), col[1], col[2], col[3]))
+        else
+                el:Show(false)
+        end
+end
+
+-- ---------------------------------------------------------------------------
+-- Виньетка центра (v2.8). Нормировка - эллипс экрана: r = 1 на середине
+-- стороны, углы r = sqrt(2). В ядре (vign_core) - vign_min от текущей альфы,
+-- дальше smoothstep до полной яркости на vign_full; за ней фактор 1.
+-- Границы калибровки: screen_bounds() даёт ПОЛУразмеры (экран 0..2*cx),
+-- центр экрана = (cx, cy) - зона прицела.
+-- ---------------------------------------------------------------------------
+local function vignette_factor(px, py)
+        if not cfg.vign_on then return 1 end
+        local cx, cy = proj.screen_bounds()
+        if not (cx and cy) or cx < 1 or cy < 1 then return 1 end
+        local nx = (px - cx) / cx
+        local ny = (py - cy) / cy
+        local rr = math.sqrt(nx * nx + ny * ny)
+        local core = cfg.vign_core
+        local full = cfg.vign_full
+        if full <= core then full = core + 0.05 end
+        if rr <= core then return cfg.vign_min end
+        if rr >= full then return 1 end
+        local t = (rr - core) / (full - core)
+        local s = t * t * (3 - 2 * t)
+        return cfg.vign_min + (1 - cfg.vign_min) * s
 end
 
 -- ---------------------------------------------------------------------------
@@ -51,11 +149,18 @@ function SoundVisionHUD:__init()
         local xml = CScriptXmlInit()
         xml:ParseFile("ui_sound_vision.xml")
         local pool_size = ev.capacity()
+        -- два пула: жёсткие кольца (ring_*) и мягкие размытые (ring_s_*) для
+        -- ореолов источников за стеной (v2.8). Статиков вдвое больше, но
+        -- скрытые CUIStatic ничего не стоят.
         self.pool = {}
+        self.pool_s = {}
         for i = 1, pool_size do
                 local el = xml:InitStatic("ring_" .. i, self)
                 el:Show(false)
                 self.pool[i] = el
+                local els = xml:InitStatic("ring_s_" .. i, self)
+                els:Show(false)
+                self.pool_s[i] = els
         end
         -- страховка: доступность SetWndSize на данном экзешнике
         local ok = pcall(function()
@@ -68,6 +173,9 @@ end
 function SoundVisionHUD:hide_all()
         for i = 1, #self.pool do
                 self.pool[i]:Show(false)
+        end
+        for i = 1, #self.pool_s do
+                self.pool_s[i]:Show(false)
         end
 end
 
@@ -92,9 +200,11 @@ function SoundVisionHUD:update_rings()
         local life = cfg.lifetime * 1000
         local rpp = cfg.rings
         local pool = self.pool
+        local pool_s = self.pool_s
         local pool_size = #pool
         local list = ev.list
-        local idx = 0
+        local idx = 0        -- слоты жёсткого пула
+        local idx_s = 0      -- слоты мягкого пула (ореолы за стеной)
         local cnt = math.min(#list, ev.max_events())
         local L = _G.sound_vision_log
         local dbg = (L and L.on()) and L.dbg or nil
@@ -116,19 +226,58 @@ function SoundVisionHUD:update_rings()
                                         tostring(e.id), tostring(e.kind))
                         end
                 else
+                        -- Учёт перекрытия (v2.8): состояние "виден напрямую /
+                        -- за стеной" из sound_vision_occlusion (кэш и бюджет
+                        -- лучей там).
+                        if e.occ_a == nil then e.occ_a, e.occ_s = 1, 0 end
+                        local occ_state = nil
+                        if cfg.occ_on and occ then
+                                occ_state = occ.evaluate(e.x, e.y, e.z, e.src)
+                        end
+                        if occ_state ~= nil then
+                                -- сглаженные множители: альфа видимых источников
+                                -- и "мягкость" ореолов за стеной (кроссфейд)
+                                e.occ_a = ease(e.occ_a,
+                                        (occ_state == false) and cfg.occ_visible or 1,
+                                        dt, OCC_TAU_MS)
+                                e.occ_s = ease(e.occ_s,
+                                        (occ_state == true) and 1 or 0, dt, OCC_TAU_MS)
+                        elseif not (cfg.occ_on and occ) then
+                                -- фича выключена/недоступна: плавный возврат к v2.7
+                                e.occ_a = ease(e.occ_a, 1, dt, OCC_TAU_MS)
+                                e.occ_s = ease(e.occ_s, 0, dt, OCC_TAU_MS)
+                        end
+                        -- occ_state == nil при включённой фиче (бюджет лучей кадра
+                        -- исчерпан): ДЕРЖИМ прошлые сглаженные значения - источник
+                        -- не пульсирует "виден/за стеной" из-за нехватки лучей;
+                        -- свежее состояние доедет следующим бюджетным кадром.
                         local sx, sy, edge = proj.to_screen(e.x, e.y, e.z, e)
                         if sx then
                                 -- Журнал: индикатор ПОЛУЧИЛОСЬ вывести (первая проекция).
                                 if dbg and not e.shown then
                                         e.shown = true
-                                        dbg("RENDER", "shown id=%s kind=%s d=%s edge=%s",
+                                        dbg("RENDER", "shown id=%s kind=%s d=%s edge=%s occ=%s",
                                                 tostring(e.id), tostring(e.kind),
-                                                e.d and string.format("%.0fm", e.d) or "?", tostring(edge))
+                                                e.d and string.format("%.0fm", e.d) or "?", tostring(edge),
+                                                occ_state == true and "wall" or (occ_state == false and "seen" or "?"))
                                 end
                                 local col = color_of(e.kind)
-                                -- Размер зависит ТОЛЬКО от дистанции до источника и одинаков
+                                -- Размер зависит от дистанции до источника и одинаков
                                 -- в обоих состояниях (в кадре / у края) - без скачков.
+                                -- Ореол за стеной раздувается (размытость, v2.8): множитель
+                                -- сглажен через occ_s, причём раздувается именно МЯГКАЯ
+                                -- текстура - жёсткая уходит с неизменным размером, и морф
+                                -- "чёткое кольцо -> мутный ореол" выглядит как раскрывание,
+                                -- а не как скачок размера. При выключенной мягкой текстуре
+                                -- раздувание достаётся жёсткой (запасной вариант "мутнее =
+                                -- больше").
                                 local base = cfg.size_px * e.scale
+                                local boost = 1 + (cfg.occ_boost - 1) * e.occ_s
+                                local base_h = cfg.occ_soft and base or (base * boost)
+                                local base_s = base * boost
+                                -- пин поджимаем под самый большой из рисуемых размеров,
+                                -- чтобы ореол не обрезался краем экрана
+                                local bpin = base_s > base_h and base_s or base_h
                                 -- Экранный якорь: живая проекция world2ui; вне кадра -
                                 -- последняя валидная (замороженная) точка ухода с экрана.
                                 local ax, ay
@@ -137,8 +286,8 @@ function SoundVisionHUD:update_rings()
                                         -- не обрезалось краем экрана
                                         local bx, by = proj.screen_bounds()
                                         if bx then
-                                                local hx = math.min(base * 0.525, bx)
-                                                local hy = math.min(base * 0.525, by)
+                                                local hx = math.min(bpin * 0.525, bx)
+                                                local hy = math.min(bpin * 0.525, by)
                                                 if sx < hx then sx = hx elseif sx > bx * 2 - hx then sx = bx * 2 - hx end
                                                 if sy < hy then sy = hy elseif sy > by * 2 - hy then sy = by * 2 - hy end
                                         end
@@ -165,44 +314,67 @@ function SoundVisionHUD:update_rings()
                                 e.blend = b
                                 local px = ax + (ex - ax) * b
                                 local py = ay + (ey - ay) * b
+                                -- Виньетка центра (v2.8): множитель альфы по точке
+                                -- отрисовки (именно она перекрывает прицел/противника).
+                                -- У пинятых к краю колец (b -> 1) виньетка плавно
+                                -- отпускает: направление на звук за спиной не глушится
+                                -- даже при vign_full > 100%, и без скачка на границе
+                                -- состояния.
+                                local vmul = 1 + (vignette_factor(px, py) - 1) * (1 - b)
+                                -- Кроссфейд текстур (v2.8): веса комплементарны, оба
+                                -- сглажены через occ_s. В установившемся режиме рисуется
+                                -- одна текстура (вес второй <= 0.03 - элемент скрыт),
+                                -- в переходе - обе одновременно: кольцо плавно
+                                -- расплывается у стены и собирается обратно. Слоты
+                                -- считаются раздельно: жёсткий и мягкий пулы независимы,
+                                -- ёмкость в событиях не меняется.
+                                local w_s = cfg.occ_soft and e.occ_s or 0
+                                local w_h = 1 - w_s
                                 for r = 1, rpp do
-                                        idx = idx + 1
-                                        if idx <= pool_size then
-                                                local k = age / life + (r - 1) / rpp
-                                                if k <= 1 then
-                                                        local el = pool[idx]
-                                                        local s = base * (0.55 + 0.5 * k)
-                                                        local al = cfg.opacity * (1 - k)
-                                                        al = al * al            -- плавнее гаснет к концу
-                                                        -- дальние источники - меньше и бледнее:
-                                                        -- двойной визуальный признак дистанции
-                                                        local sn = (e.scale - cfg.min_frac) / (1 - cfg.min_frac)
-                                                        if sn < 0 then sn = 0 elseif sn > 1 then sn = 1 end
-                                                        al = al * (0.55 + 0.45 * sn)
-                                                        if al > 0.03 then
-                                                                el:Show(true)
-                                                                -- (px,py) - ЦЕНТР кольца в обоих состояниях:
-                                                                -- нет сдвига на пол-кольца при переходе
-                                                                el:SetWndPos(tmp_v2:set(px - s * 0.5, py - s * 0.5))
-                                                                if self.can_resize then
-                                                                        el:SetWndSize(tmp_v2:set(s, s))
-                                                                end
-                                                                el:SetTextureColor(GetARGB(math.floor(al * 255), col[1], col[2], col[3]))
-                                                        else
-                                                                el:Show(false)
+                                        local k = age / life + (r - 1) / rpp
+                                        if k <= 1 then
+                                                -- общая альфа-цепочка (до текстурных весов)
+                                                local al0 = cfg.opacity * (1 - k)
+                                                al0 = al0 * al0            -- плавнее гаснет к концу
+                                                -- дальние источники - меньше и бледнее:
+                                                -- двойной визуальный признак дистанции
+                                                local sn = (e.scale - cfg.min_frac) / (1 - cfg.min_frac)
+                                                if sn < 0 then sn = 0 elseif sn > 1 then sn = 1 end
+                                                al0 = al0 * (0.55 + 0.45 * sn) * vmul
+                                                -- жёсткая текстура: видимый источник; при уходе
+                                                -- за стену гаснет, не меняя размера
+                                                if w_h > 0.005 then
+                                                        idx = idx + 1
+                                                        if idx <= pool_size then
+                                                                local s = base_h * (0.55 + 0.5 * k)
+                                                                draw_ring(pool[idx], px, py, s,
+                                                                        al0 * e.occ_a * w_h, col, self.can_resize)
                                                         end
-                                                else
-                                                        pool[idx]:Show(false)
+                                                end
+                                                -- мягкая текстура: мутный ореол за стеной;
+                                                -- проявляется с раздуванием base_s
+                                                if w_s > 0.005 then
+                                                        idx_s = idx_s + 1
+                                                        if idx_s <= pool_size then
+                                                                local s = base_s * (0.55 + 0.5 * k)
+                                                                draw_ring(pool_s[idx_s], px, py, s,
+                                                                        al0 * e.occ_a * w_s, col, self.can_resize)
+                                                        end
                                                 end
                                         end
                                 end
                         end
                 end
-                if idx >= pool_size then break end
+                if idx >= pool_size and idx_s >= pool_size then break end
         end
         if idx < pool_size then
                 for i = idx + 1, pool_size do
                         pool[i]:Show(false)
+                end
+        end
+        if idx_s < pool_size then
+                for i = idx_s + 1, pool_size do
+                        pool_s[i]:Show(false)
                 end
         end
         ev.remove_dead()

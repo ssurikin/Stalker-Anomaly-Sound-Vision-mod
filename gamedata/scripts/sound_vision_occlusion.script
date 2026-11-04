@@ -1,0 +1,228 @@
+-- ============================================================================
+-- sound_vision_occlusion: учёт перекрытия источника звука стенами (v2.8)
+--
+-- Ответственность (SRP): ответить на вопрос «виден ли источник звука игро-
+-- ку напрямую» (line of sight) и закэшировать ответ. Визуальное решение
+-- (полупрозрачные видимые, размытые ореолы за стеной) принимает
+-- sound_vision_render; здесь только геометрия, кэш и бюджет лучей.
+--
+-- Как проверяется: луч уровня от камеры игрока к мировой точке звука
+-- (level.ray_pick / класс ray_pick - на сборках xray-monolith 1.5.2+; проба
+-- доступности по образцу probe_world2ui в sound_vision_projection). Цель -
+-- ТОЛЬКО статическая геометрия (rq_target.rqtStatic):
+--   - предсказуемо: NPC, мутанты, техника и физика не мигают состоянием,
+--     луч никогда не задевает сам источник (он динамический);
+--   - отвечает ровно на вопрос «за стеной ли источник»;
+--   - закрытые двери - динамическая геометрия, луч их не видит: ложное
+--     «виден напрямую» - сознательная цена, для доступности лучше показать
+--     лишнее, чем скрыть видимое.
+-- Попадание считается стеной, только если оно ЗАМЕТНО РАНЬШЕ точки
+-- источника (LOS_EPS_M): касание стены прямо у источника (источник у стены,
+-- точка попадания пули на стене) не делает «перекрытым» то, что игрок видит.
+--
+-- Производительность: лучи - самая дорогая часть конвейера рендера, поэтому
+--   1) состояние кэшируется на источник (OCC_TTL_MS), для источников без id
+--      ключ - сетка 2 м от мировой точки;
+--   2) кэш инвалидируется, если точка звука ушла дальше 2 м от закэширо-
+--      ванной (идущий NPC «mv<id>», летящая граната);
+--   3) бюджет RAYS_FRAME лучей на кадр: источники сверх бюджета держат
+--      прошлое состояние до следующего кадра, FPS не зависит от числа
+--      событий на экране.
+--
+-- На сборках без ray_pick (старые экзешники) evaluate возвращает nil -
+-- признака перекрытия нет, рендер рисует как в v2.7; в журнале остаётся
+-- честная строка OCC (проба выполняется один раз, при первом вызове).
+--
+-- Зависимости: sound_vision_log (лениво, через _G). Встречных зависимостей
+-- нет: рендер обращается к _G.sound_vision_occlusion из любого места кадра.
+--
+-- Экспорт:
+--   evaluate(x, y, z, who) -> true  - источник за стеной
+--                             false - виден напрямую
+--                             nil   - признака нет (нет ray_pick, бюджет
+--                                     лучей исчерпан, данных ещё нет)
+--                             who   - ключ источника из очереди (e.src):
+--                                     id NPC/техники или строка ключа
+--   clear()                - сброс кэша (загрузка уровня, смена карты)
+--   stats()                - таблица для отладки/тестов: доступность, режим,
+--                             размер кэша, счётчик лучей
+-- ============================================================================
+
+local OCC_TTL_MS = 350    -- время жизни кэша состояния одного источника, мс
+local RAYS_FRAME = 2      -- бюджет лучей на кадр (кадр ~16 мс)
+local NEAR_M     = 1.5    -- ближе стольких метров от камеры - виден без луча
+local LOS_EPS_M  = 0.45   -- попадание ближе стольких метров ДО точки - не стена
+local KEY_GRID_M = 2      -- сетка ключа для событий без источника, м
+local DRIFT_M2   = 4      -- (2 м)^2 - уход точки от кэша инвалидирует состояние
+
+local cache = {}          -- [ключ источника] = { occ = bool, t, x, y, z }
+local state = nil         -- nil = проба ещё не делалась; true/false = ray_pick
+local use_class = false   -- true = класс ray_pick, false = level.ray_pick
+local tgt = nil           -- rq_target.rqtStatic после успешной пробы
+local res = nil           -- переиспользуемый rq_result (для level.ray_pick)
+local frame_bucket = 0    -- мс-окно текущего кадра
+local frame_rays = 0      -- лучи, потраченные в текущем кадре
+local rays_total = 0      -- лучи за сессию (для stats)
+
+local tmp_v = vector()    -- переиспользуемый вектор направления луча
+
+-- ---------------------------------------------------------------------------
+-- Проба доступности луча (один раз, при первом evaluate). На сборке без
+-- ray_pick признака не будет - это штатная ситуация старых экзешников.
+-- ---------------------------------------------------------------------------
+local function probe()
+        if state ~= nil then return state end
+        -- rq_target.rqtStatic: enum экспортирован классом "rq_target"
+        local ok_t, tgt_v = pcall(function() return rq_target.rqtStatic end)
+        if not (ok_t and tgt_v ~= nil) then
+                state = false
+                return false
+        end
+        -- путь 1: свободная функция level.ray_pick(from, dir, range, tgt,
+        -- res, ignore) с переиспользуемым rq_result (нулевая нагрузка на GC)
+        local ok_f, fn = pcall(function() return level and level.ray_pick end)
+        if ok_f and type(fn) == "function" then
+                local ok_r, rv = pcall(function() return rq_result() end)
+                if ok_r and rv ~= nil then
+                        tgt, res, use_class = tgt_v, rv, false
+                        state = true
+                        return true
+                end
+        end
+        -- путь 2: класс ray_pick (CRayPick) - constructor(from, dir, range,
+        -- tgt, ignore) + query(); создаёт объект на каждый луч, поэтому
+        -- только как запасной путь
+        local ok_c, cls = pcall(function() return ray_pick end)
+        if ok_c and cls ~= nil then
+                tgt, use_class = tgt_v, true
+                state = true
+                return true
+        end
+        state = false
+        return false
+end
+
+-- Луч: true, дистанция попадания - на пути что-то из статической геометрии;
+-- false - путь чист. Любая ошибка биндинга трактуется как «путь чист»:
+-- сбой луча не должен гасить индикацию.
+local function cast(from, dir, dist)
+        if use_class then
+                local ok, rp = pcall(ray_pick, from, dir, dist, tgt, nil)
+                if not (ok and rp) then return false, 0 end
+                local ok_q, hit = pcall(rp.query, rp)
+                if ok_q and hit then
+                        local ok_d, rng = pcall(rp.get_distance, rp)
+                        return true, (ok_d and rng) or dist
+                end
+                return false, 0
+        end
+        local ok, hit = pcall(level.ray_pick, from, dir, dist, tgt, res, nil)
+        if not ok then return false, 0 end
+        if hit then return true, res.range or dist end
+        return false, 0
+end
+
+-- Оценка перекрытия мировой точки (x,y,z). who - ключ источника из очереди.
+local function evaluate(x, y, z, who)
+        if state == nil then
+                local ok = probe()
+                local L0 = _G.sound_vision_log
+                if L0 then
+                        if ok then
+                                L0.force("OCC", "ray_pick available (%s): occlusion feature active",
+                                        use_class and "class ray_pick" or "level.ray_pick")
+                        else
+                                L0.force("OCC", "ray_pick NOT available on this build: occlusion feature inactive (rings as in v2.7)")
+                        end
+                end
+        end
+        if not state then return nil end
+        local now = time_global()
+        -- Ключ кэша: ключ источника из очереди; без него - сетка 2 м от
+        -- мировой точки (физика/взрывы меняют точку, сетка не даёт новых
+        -- ключей на каждый кадр).
+        local key
+        if who ~= nil then
+                key = tostring(who)
+        else
+                key = string.format("p%d_%d_%d",
+                        math.floor(x / KEY_GRID_M),
+                        math.floor(y / KEY_GRID_M),
+                        math.floor(z / KEY_GRID_M))
+        end
+        local c = cache[key]
+        if c and (now - c.t) < OCC_TTL_MS then
+                -- точка ушла дальше 2 м от закэшированной - состояние могло
+                -- смениться (идущий NPC, летящая граната): пересчитываем
+                local ddx, ddy, ddz = x - c.x, y - c.y, z - c.z
+                if ddx * ddx + ddy * ddy + ddz * ddz < DRIFT_M2 then
+                        return c.occ
+                end
+        end
+        -- Бюджет лучей на кадр: кадр аппроксимируем мс-окном 16 мс.
+        local bucket = math.floor(now / 16)
+        if bucket ~= frame_bucket then
+                frame_bucket = bucket
+                frame_rays = 0
+        end
+        if frame_rays >= RAYS_FRAME then
+                -- бюджет исчерпан: источники с прошлым состоянием держат его
+                -- до следующего кадра, без состояния - без признака
+                return c and c.occ or nil
+        end
+        local d = device()
+        local cp = d.cam_pos
+        local dx, dy, dz = x - cp.x, y - cp.y, z - cp.z
+        local dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+        local occ = false
+        if dist >= NEAR_M then
+                frame_rays = frame_rays + 1
+                rays_total = rays_total + 1
+                local dir = tmp_v:set(dx / dist, dy / dist, dz / dist)
+                local hit, rng = cast(cp, dir, dist)
+                -- стена НА ПУТИ: попадание заметно раньше точки источника
+                if hit and (dist - rng) > LOS_EPS_M then occ = true end
+        end
+        cache[key] = { occ = occ, t = now, x = x, y = y, z = z }
+        -- Журнал (MCM: Отладка): смена состояния источника - первая оценка
+        -- и каждый переход виден/за стеной. Переходов немного, rate не нужен.
+        local L = _G.sound_vision_log
+        if L and L.on() and (not c or c.occ ~= occ) then
+                L.dbg("OCC", "%s: key=%s d=%.1fm",
+                        occ and "occluded (wall)" or "visible (clear LOS)",
+                        key, dist)
+        end
+        return occ
+end
+
+-- Сброс кэша: загрузка уровня (load_state), смена карты. Проба и бюджет не
+-- трогаются - движок тот же.
+local function clear()
+        for k in pairs(cache) do cache[k] = nil end
+        frame_bucket = 0
+        frame_rays = 0
+end
+
+-- Отладочная сводка (sound_vision_debug.occlusion_stats / консоль).
+local function stats()
+        local n = 0
+        for _ in pairs(cache) do n = n + 1 end
+        return {
+                available = state,
+                mode = use_class and "class ray_pick" or "level.ray_pick",
+                cache_size = n,
+                rays_total = rays_total,
+                frame_rays = frame_rays,
+                ttl_ms = OCC_TTL_MS,
+                rays_per_frame = RAYS_FRAME,
+        }
+end
+
+-- ============================================================================
+-- Экспорт модуля
+-- ============================================================================
+_G.sound_vision_occlusion = {
+        evaluate = evaluate,
+        clear = clear,
+        stats = stats,
+}

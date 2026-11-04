@@ -77,9 +77,11 @@
 --   sound_vision_events     - очередь событий: слышимость, антиспам, масштаб;
 --   sound_vision_detect     - опрос мира: шаги, физика, зоны, болт (4 Гц);
 --   sound_vision_projection - мир -> HUD: проекция и пин к краю экрана;
---   sound_vision_render     - пул колец, анимация, сглаживание переходов;
+--   sound_vision_render     - пул колец, анимация, сглаживание переходов,
+--                             виньетка центра и учёт перекрытия (v2.8);
+--   sound_vision_occlusion  - виден ли источник напрямую / за стеной (v2.8);
 --   sound_vision_log        - отладочный журнал (MCM: Отладка); теги HEAR/
---                             SHOT/GATE/QUEUE/RENDER отвечают на вопрос
+--                             SHOT/GATE/QUEUE/RENDER/OCC отвечают на вопрос
 --                             «звук ловим, а кольца нет - где теряем»;
 --   sound_vision_mcm        - дерево настроек MCM + get_config().
 --
@@ -836,6 +838,7 @@ local function on_load_state()
         -- новая загрузка: события эфемерны и не сохраняются - чистим всё
         sound_vision_events.clear_all()
         sound_vision_detect.clear()
+        sound_vision_occlusion.clear()   -- кэш «за стеной» другой карты (v2.8)
         for k in pairs(heli_watch) do heli_watch[k] = nil end
         for k in pairs(wpn_ammo) do wpn_ammo[k] = nil end
         heli_pulse_t = 0
@@ -843,7 +846,7 @@ local function on_load_state()
         local L = _G.sound_vision_log
         if L then L.clear() end
         if L and L.on() then
-                L.dbg("INIT", "load state: queue, detect and log rate state cleared")
+                L.dbg("INIT", "load state: queue, detect, occlusion cache and log rate state cleared")
         end
 end
 
@@ -891,10 +894,14 @@ function on_game_start()
         local L = _G.sound_vision_log
         if L and L.on() then
                 local mc = sound_vision_config.mc
-                L.dbg("INIT", "started: enabled=%s by_loudness=%s max_dist=%dm npc_shots=%s (ammo-poll %dms/%dm + actor hit) show_own=%s",
+                L.dbg("INIT", "started: enabled=%s by_loudness=%s max_dist=%dm npc_shots=%s (ammo-poll %dms/%dm + actor hit) show_own=%s vignette=%s(%.0f%% core %.0f%%/full %.0f%%) occlusion=%s(visible %.0f%% soft=%s +%d%%)",
                         tostring(mc.enabled), tostring(mc.by_loudness),
                         mc.max_dist, tostring(mc.npc_shots),
-                        WPN_POLL_MS, WPN_POLL_D, tostring(mc.show_own))
+                        WPN_POLL_MS, WPN_POLL_D, tostring(mc.show_own),
+                        tostring(mc.vign_on), mc.vign_min * 100,
+                        mc.vign_core * 100, mc.vign_full * 100,
+                        tostring(mc.occ_on), mc.occ_visible * 100,
+                        tostring(mc.occ_soft), mc.occ_boost * 100)
         end
 end
 
@@ -911,4 +918,7 @@ _G.sound_vision_debug = {
         classify = sound_vision_classify.classify,
         types    = sound_vision_classify.registry,
         refresh_config = sound_vision_config.refresh_config,
+        -- v2.8: сводка окклюзии (доступность ray_pick, кэш, счётчик лучей):
+        -- sound_vision_debug.occlusion_stats()
+        occlusion_stats = sound_vision_occlusion.stats,
 }
