@@ -1,13 +1,13 @@
 <sound_vision_wnd>
-	<ring_1  x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_1>
-	<ring_2  x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_2>
-	<ring_3  x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_3>
-	<ring_4  x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_4>
-	<ring_5  x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_5>
-	<ring_6  x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_6>
-	<ring_7  x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_7>
-	<ring_8  x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_8>
-	<ring_9  x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_9>
+	<ring_1 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_1>
+	<ring_2 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_2>
+	<ring_3 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_3>
+	<ring_4 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_4>
+	<ring_5 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_5>
+	<ring_6 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_6>
+	<ring_7 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_7>
+	<ring_8 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_8>
+	<ring_9 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_9>
 	<ring_10 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_10>
 	<ring_11 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_11>
 	<ring_12 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_12>
@@ -23,4 +23,12 @@
 	<ring_22 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_22>
 	<ring_23 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_23>
 	<ring_24 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_24>
+	<ring_25 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_25>
+	<ring_26 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_26>
+	<ring_27 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_27>
+	<ring_28 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_28>
+	<ring_29 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_29>
+	<ring_30 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_30>
+	<ring_31 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_31>
+	<ring_32 x="-200" y="-200" width="64" height="64" alignment="c" stretch="1"><texture>ui\sv_ring.dds</texture></ring_32>
 </sound_vision_wnd>

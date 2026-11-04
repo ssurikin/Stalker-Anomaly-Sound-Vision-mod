@@ -5,6 +5,7 @@
 <string id="ui_mcm_sound_vision_section_general"><text>Общие настройки</text></string>
 <string id="ui_mcm_sound_vision_section_size"><text>Размер и анимация</text></string>
 <string id="ui_mcm_sound_vision_section_categories"><text>Типы звуков</text></string>
+<string id="ui_mcm_sound_vision_section_detect"><text>Источники обнаружения</text></string>
 <!-- General -->
 <string id="ui_mcm_sound_vision_general_enabled"><text>Включить мод</text></string>
 <string id="ui_mcm_sound_vision_general_enabled_desc"><text>Рисовать расходящиеся кольца на экране в точке источника любого звука, в том числе сквозь стены.</text></string>
@@ -21,12 +22,12 @@
 <string id="ui_mcm_sound_vision_size_size_px_desc"><text>Размер кольца для близкого источника звука (виртуальные пиксели HUD).</text></string>
 <string id="ui_mcm_sound_vision_size_ref_dist"><text>Базовое расстояние (м)</text></string>
 <string id="ui_mcm_sound_vision_size_ref_dist_desc"><text>На этом расстоянии кольцо имеет полный размер. У более дальних источников кольца меньше.</text></string>
-<string id="ui_mcm_sound_vision_size_min_frac"><text>Минимальный размер (доля)</text></string>
-<string id="ui_mcm_sound_vision_size_min_frac_desc"><text>Насколько маленьким может стать кольцо у самого дальнего звука (0.05-0.5 от полного размера).</text></string>
+<string id="ui_mcm_sound_vision_size_min_frac"><text>Минимальный размер (%)</text></string>
+<string id="ui_mcm_sound_vision_size_min_frac_desc"><text>Насколько маленьким может стать кольцо у самого дальнего звука, процент от полного размера (5-50).</text></string>
 <string id="ui_mcm_sound_vision_size_rings"><text>Волн на один звук</text></string>
 <string id="ui_mcm_sound_vision_size_rings_desc"><text>Сколько расходящихся колец рисуется для одного звука (1-3, в стиле сонара).</text></string>
-<string id="ui_mcm_sound_vision_size_opacity"><text>Яркость</text></string>
-<string id="ui_mcm_sound_vision_size_opacity_desc"><text>Общая непрозрачность колец (0.2-1.0).</text></string>
+<string id="ui_mcm_sound_vision_size_opacity"><text>Яркость (%)</text></string>
+<string id="ui_mcm_sound_vision_size_opacity_desc"><text>Общая непрозрачность колец, процент (20-100).</text></string>
 <!-- Categories -->
 <string id="ui_mcm_sound_vision_categories_cat_weapon"><text>Выстрелы и оружие</text></string>
 <string id="ui_mcm_sound_vision_categories_cat_weapon_desc"><text>Красные кольца: выстрелы, взрывы, гранаты.</text></string>
@@ -36,6 +37,15 @@
 <string id="ui_mcm_sound_vision_categories_cat_step_desc"><text>Жёлтые кольца: любой идущий или бегущий рядом, в том числе за стеной.</text></string>
 <string id="ui_mcm_sound_vision_categories_cat_monster"><text>Мутанты</text></string>
 <string id="ui_mcm_sound_vision_categories_cat_monster_desc"><text>Фиолетовые кольца: звуки мутантов - шаги, рычание, атаки.</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_anomaly"><text>Аномалии</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_anomaly_desc"><text>Бирюзовые кольца: гул аномалий в простое и шипение активации (болт, приближение, вход в зону).</text></string>
 <string id="ui_mcm_sound_vision_categories_cat_other"><text>Физика и прочее</text></string>
-<string id="ui_mcm_sound_vision_categories_cat_other_desc"><text>Синие кольца: выпавшие предметы, двери, столкновения объектов.</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_other_desc"><text>Синие кольца: толкаемые бочки и коробки, удары ножом, выброшенные предметы, гранаты, падающие тела.</text></string>
+<!-- Detection -->
+<string id="ui_mcm_sound_vision_detect_anm_pulse"><text>Пауза гула аномалий (сек)</text></string>
+<string id="ui_mcm_sound_vision_detect_anm_pulse_desc"><text>Как часто каждая ближайшая аномалия пульсирует в простое (её гул играет периодически). Реальные аномалии гудят каждые несколько секунд.</text></string>
+<string id="ui_mcm_sound_vision_detect_phys_enable"><text>Следить за движением объектов</text></string>
+<string id="ui_mcm_sound_vision_detect_phys_enable_desc"><text>Наблюдать за физическими объектами рядом: толкнутая или задетая бочка, скользящая коробка, брошенная граната дают кольца. Отключите, если будет лишний шум на экране.</text></string>
+<string id="ui_mcm_sound_vision_detect_phys_sens"><text>Порог движения объекта (см)</text></string>
+<string id="ui_mcm_sound_vision_detect_phys_sens_desc"><text>Насколько далеко должен сдвинуться объект, чтобы считаться "издающим звук". Меньше - чувствительнее (больше колец). По умолчанию 12 см.</text></string>
 </string_table>

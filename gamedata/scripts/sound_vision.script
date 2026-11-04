@@ -1,18 +1,29 @@
 -- ============================================================================
--- Sound Vision v1.0
+-- Sound Vision v1.1
 -- Визуальная индикация источников звука для слабослышащих игроков.
 --
 -- Что делает: рисует на экране расходящиеся кольца в точке любого звука
--- (выстрелы, шаги, голос, физика) - в том числе сквозь стены. Размер кольца
--- уменьшается с расстоянием до источника. Всё настраивается в MCM
--- (Sound Vision -> настройки).
+-- (выстрелы, шаги, голос, физика, аномалии) - в том числе сквозь стены.
+-- Размер кольца уменьшается с расстоянием до источника. Всё настраивается
+-- в MCM (Sound Vision -> настройки).
 --
--- Как мод узнаёт о звуках (без перезаписи чужих файлов, только добавление):
---   1) npc_on_hear_callback (ванильный колбэк Anomaly) - игровой ИИ-слух:
---      любой NPC/монстр что-то услышал (выстрел, шаг, голос, падение и т.д.)
---   2) Опрос движения NPC/мутантов рядом с игроком - если объект сместился,
---      он "шагает": гарантированные кольца, даже если звук никто не услышал
---   3) actor_on_footstep (ванильный) - шаги самого игрока (выкл. по умолч.)
+-- Источники событий (без перезаписи чужих файлов, только добавление):
+--   1) npc_on_hear_callback (ванильный) - ИИ-слух: любой NPC/монстр что-то
+--      услышал (выстрел, шаг, голос, падение и т.д.)
+--   2) anomaly_on_before_activate (ванильный) - аномалия активируется
+--      (шипение): болт, NPC, мутант попали в зону
+--   3) actor_on_feeling_anomaly (ванильный) - игрок вошёл в поле аномалии
+--   4) physic_object_on_hit_callback (ванильный) - удар по физическому
+--      объекту (нож по бочке, пуля по ящику, кулак по коробке)
+--   5) actor_on_item_drop (ванильный) - игрок выбросил предмет (стук)
+--   6) Опрос мира (4 Гц):
+--      - движение NPC/мутантов -> "шаги" (гарантированно, сквозь стены)
+--      - движение трупов/физики (бочки, коробки, гранаты) -> "физика"
+--        (толкание бочки, скольжение, падение)
+--      - аномальные зоны -> периодический "гул" (idle-звук зон играет
+--        циклично с случайными паузами - имитируем его пульсами)
+--      - болт: остановился рядом с зоной -> активация аномалии
+--   7) actor_on_footstep (ванильный) - шаги самого игрока (выкл. по умолч.)
 --
 -- Отрисовка: пул CUIStatic-колец (белая текстура ui\sv_ring.dds + цвет через
 -- SetTextureColor), позиция - game.world2ui() (мир -> координаты HUD),
@@ -20,8 +31,9 @@
 --
 -- Сигнатуры и паттерны взяты из:
 --   robe127.github.io/stalker-anomaly-modding-guide (callbacks-reference)
---   реальных аддонов: targetID (иконки над головами), Stealth Overhaul
---   Reworked (npc_on_hear_callback), Twitch Integration (UI + MCM).
+--   исходников MCM 1.7 (github.com/RAX-Anomaly/Anomaly-Mod-Configuration-Menu)
+--   реальных аддонов: Twitch Integration (UI + MCM + on_option_change),
+--   targetID (иконки над головами), Stealth Overhaul Reworked (слух NPC).
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -42,10 +54,16 @@ local mc = {
         cat_voice   = true,
         cat_step    = true,
         cat_monster = true,
+        cat_anomaly = true,
         cat_other   = true,
+        anm_pulse   = 4,      -- пауза между пульсами гула зоны, сек
+        phys_enable = true,   -- физика: следить за движением объектов
+        phys_sens   = 0.12,   -- порог смещения "объект движется", м
 }
 
-local function refresh_config()
+-- Обновление конфига. Глобальная функция: вызывается из sound_vision_mcm
+-- (on_option_change) и из колбэков этого скрипта.
+function refresh_config()
         mc.enabled     = sound_vision_mcm.get_config("enabled") ~= false
         mc.show_own    = sound_vision_mcm.get_config("show_own") == true
         mc.max_dist    = tonumber(sound_vision_mcm.get_config("max_dist")) or 45
@@ -53,20 +71,23 @@ local function refresh_config()
         mc.throttle    = tonumber(sound_vision_mcm.get_config("throttle")) or 0.3
         mc.size_px     = tonumber(sound_vision_mcm.get_config("size_px")) or 96
         mc.ref_dist    = math.max(0.5, tonumber(sound_vision_mcm.get_config("ref_dist")) or 8)
-        mc.min_frac    = tonumber(sound_vision_mcm.get_config("min_frac")) or 0.12
+        mc.min_frac    = (tonumber(sound_vision_mcm.get_config("min_frac")) or 12) / 100
         mc.rings       = math.max(1, math.min(3, math.floor(tonumber(sound_vision_mcm.get_config("rings")) or 2)))
-        mc.opacity     = tonumber(sound_vision_mcm.get_config("opacity")) or 0.85
+        mc.opacity     = (tonumber(sound_vision_mcm.get_config("opacity")) or 85) / 100
         mc.cat_weapon  = sound_vision_mcm.get_config("cat_weapon") ~= false
         mc.cat_voice   = sound_vision_mcm.get_config("cat_voice") ~= false
         mc.cat_step    = sound_vision_mcm.get_config("cat_step") ~= false
         mc.cat_monster = sound_vision_mcm.get_config("cat_monster") ~= false
+        mc.cat_anomaly = sound_vision_mcm.get_config("cat_anomaly") ~= false
         mc.cat_other   = sound_vision_mcm.get_config("cat_other") ~= false
+        mc.anm_pulse   = math.max(2, tonumber(sound_vision_mcm.get_config("anm_pulse")) or 4)
+        mc.phys_enable = sound_vision_mcm.get_config("phys_enable") ~= false
+        mc.phys_sens   = math.max(0.02, (tonumber(sound_vision_mcm.get_config("phys_sens")) or 12) / 100)
 end
 
 -- ---------------------------------------------------------------------------
 -- Классификация звука по типу (типы - строки из ogg-комментариев, напр.
--- "WPN_hit", "MST_attack", "NPC_step"; на всякий случай поддержана и
--- числовая битовая маска старых движков)
+-- "WPN_hit", "MST_attack", "NPC_step"; поддержана и битовая маска движка)
 -- ---------------------------------------------------------------------------
 -- цвет {r,g,b} на БЕЛОЙ текстуре: итог = пиксель текстуры * SetTextureColor / 255
 local KIND_COLOR = {
@@ -74,7 +95,8 @@ local KIND_COLOR = {
         voice   = {255, 255, 255},  -- речь, крики, стоны - белый
         step    = {255, 185, 70},   -- шаги, движение - жёлтый
         monster = {235, 85, 255},   -- мутанты - фиолетовый
-        other   = {90, 165, 255},   -- физика: предметы, двери - синий
+        anomaly = {60, 255, 225},   -- аномалии: гул, шипение - бирюзовый
+        other   = {90, 165, 255},   -- физика: предметы, бочки, двери - синий
         own     = {160, 160, 160},  -- собственные звуки игрока - серый
 }
 
@@ -83,6 +105,7 @@ local KIND_CAT = {
         voice   = "cat_voice",
         step    = "cat_step",
         monster = "cat_monster",
+        anomaly = "cat_anomaly",
         other   = "cat_other",
         own     = nil,              -- управляется show_own
 }
@@ -116,6 +139,9 @@ local function classify(st)
                 if str_find(s, "step") or str_find(s, "walk") or str_find(s, "jump")
                         or str_find(s, "land") then
                         return "step"
+                end
+                if str_find(s, "anom") or str_find(s, "zone") then
+                        return "anomaly"
                 end
                 if str_find(s, "obj") or str_find(s, "collid") or str_find(s, "break")
                         or str_find(s, "drop") or str_find(s, "door") or str_find(s, "physic")
@@ -152,18 +178,17 @@ local function can_show(kind)
 end
 
 -- ---------------------------------------------------------------------------
--- События звука
+-- Очередь событий
 -- ---------------------------------------------------------------------------
-local POOL = 24                 -- всего колец на экране (XML: ring_1..ring_24)
-local events = {}               -- {x,y,z,kind,d,scale,t,dead}
+local POOL = 32                 -- всего колец на экране (XML: ring_1..ring_32)
+local events = {}               -- {x,y,z,kind,scale,t,dead}
 local throttle_t = {}           -- ключ источника -> time_global последнего события
-local last_pos = {}             -- [id] = {x,y,z} для опроса движения
 
 local function max_events()
         return math.floor(POOL / mc.rings)
 end
 
-local function push_event(x, y, z, kind, who)
+local function push_event(x, y, z, kind, who, force)
         if not mc.enabled or not can_show(kind) then return end
         local a = db.actor
         if not a then return end
@@ -173,10 +198,12 @@ local function push_event(x, y, z, kind, who)
         local maxd = mc.max_dist
         if d2 > maxd * maxd then return end
         local now = time_global()
-        local key = who or 0
-        local lt = throttle_t[key]
-        if lt and (now - lt) < mc.throttle * 1000 then return end
-        throttle_t[key] = now
+        if not force then
+                local key = who or 0
+                local lt = throttle_t[key]
+                if lt and (now - lt) < mc.throttle * 1000 then return end
+                throttle_t[key] = now
+        end
         local d = math.sqrt(d2)
         -- масштаб размера: чем дальше источник, тем меньше кольцо
         local scale = mc.ref_dist / math.max(d, 0.5)
@@ -195,7 +222,6 @@ end
 -- Источник 1: слух NPC (движок -> скрипт)
 -- Сигнатура (Anomaly 1.5.x):
 --   npc_on_hear_callback(npc, who_id, s_type, dist, sound_power, sound_position)
---   s_type - строка типа звука ("WPN_hit", "MST_attack", ...), см. classify()
 -- ---------------------------------------------------------------------------
 local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
         if not pos or pos.x == nil then return end
@@ -213,52 +239,231 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
 end
 
 -- ---------------------------------------------------------------------------
--- Источник 2: опрос движения NPC/мутантов рядом с игроком.
--- Гарантирует "шаги" для любого идущего персонажа (в т.ч. за стеной),
--- даже если его не слышит ни один NPC (слух движка до него не доходит).
+-- Источник 2: колбэки аномалий (ванильные, см. callbacks-reference)
+-- ---------------------------------------------------------------------------
+local function on_anomaly_activate(anomaly, activator)
+        if not mc.enabled or not mc.cat_anomaly then return end
+        if not anomaly then return end
+        local ok, p = pcall(anomaly.position, anomaly)
+        if ok and p and p.x then
+                push_event(p.x, p.y, p.z, "anomaly", "anm" .. anomaly:id(), true)
+        end
+end
+
+local function on_actor_feel_anomaly(anomaly, flags)
+        if not mc.enabled or not mc.cat_anomaly then return end
+        if not anomaly then return end
+        local ok, p = pcall(anomaly.position, anomaly)
+        if ok and p and p.x then
+                -- игрок вошёл в поле: зона шипит - пара немедленных импульсов
+                push_event(p.x, p.y, p.z, "anomaly", "anm" .. anomaly:id(), true)
+        end
+end
+
+-- ---------------------------------------------------------------------------
+-- Источник 3: физика (ванильные колбэки + опрос движения)
+-- ---------------------------------------------------------------------------
+local function on_physic_hit(obj, amount, direction, attacker, bone_id)
+        if not mc.enabled or not mc.phys_enable or not mc.cat_other then return end
+        if not obj then return end
+        local ok, p = pcall(obj.position, obj)
+        if ok and p and p.x then
+                push_event(p.x, p.y, p.z, "other", "ph" .. obj:id())
+        end
+end
+
+local function on_physic_use(obj, who)
+        if not mc.enabled or not mc.phys_enable or not mc.cat_other then return end
+        if not obj then return end
+        local ok, p = pcall(obj.position, obj)
+        if ok and p and p.x then
+                push_event(p.x, p.y, p.z, "other", "pu" .. obj:id())
+        end
+end
+
+local function on_item_drop(obj)
+        if not mc.enabled or not mc.cat_other then return end
+        if not obj then return end
+        local ok, p = pcall(obj.position, obj)
+        if ok and p and p.x then
+                push_event(p.x, p.y, p.z, "other", "dr" .. obj:id())
+        end
+end
+
+-- ---------------------------------------------------------------------------
+-- Источник 4: опрос мира (4 Гц). Один проход по db.storage:
+--   - живые NPC/мутанты  -> "шаги"
+--   - трупы, физпропосы  -> "физика" (толкание, скольжение, падение)
+--   - зоны (zone_*)      -> "гул аномалии" + активация при приближении
+--   - болты              -> активация аномалии при остановке болта в зоне
 -- ---------------------------------------------------------------------------
 local MOVE_POLL_MS   = 250
-local MOVE_MIN_D2    = 0.06    -- ~0.25 м за опрос => считается движением
+local STEP_MIN_D2    = 0.06    -- ~0.25 м за опрос => живой персонаж движется
+local BOLT_STOP_MS   = 450     -- болт неподвижен столько - он "приземлился"
+local ZONE_NEAR_M    = 3.0     -- ближе стольких метров до центра зоны - она "шипит"
+local ZONE_BOLT_R2   = 64      -- (8 м)^2 - болт остановился рядом с зоной => активация
+local BOLT_FLEW_D2   = 1.0     -- (1 м)^2 - болт должен пролететь хотя бы метр
 local move_timer     = 0
 local cleanup_timer  = 0
 
-local function movement_poll()
+local last_pos    = {}   -- [id] = {x,y,z} - прошлая позиция (для движения)
+local sections    = {}   -- [id] = секция объекта (кэш)
+local zone_state  = {}   -- [id] = {next=мс, near=bool} - пульс гула зон
+local zone_pos    = {}   -- [id] = {x,y,z} - центры зон рядом (для болтов)
+local bolt_state  = {}   -- [id] = {sx,sy,sz,lx,ly,lz,still,done}
+
+local function starts_with(s, sub)
+        return string.find(s, sub, 1, true) == 1
+end
+
+local function excluded_section(s)
+        -- оружие/патроны в руках NPC дублировали бы кольца самого NPC;
+        -- артефакты левитируют в зонах и шумели бы постоянно
+        return starts_with(s, "wpn_") or starts_with(s, "ammo_") or starts_with(s, "af_")
+end
+
+local function nearest_zone_id(x, y, z)
+        local best, bd2 = nil, ZONE_BOLT_R2
+        for zid, zp in pairs(zone_pos) do
+                local dx, dy, dz = x - zp.x, y - zp.y, z - zp.z
+                local d2 = dx * dx + dy * dy + dz * dz
+                if d2 < bd2 then
+                        bd2 = d2
+                        best = zid
+                end
+        end
+        return best
+end
+
+local function process_object(o, id, ap, maxd2, now)
+        local pos = o:position()
+        local ddx, ddz = pos.x - ap.x, pos.z - ap.z
+        local dd2 = ddx * ddx + ddz * ddz
+        if dd2 >= maxd2 then
+                if zone_pos[id] then zone_pos[id] = nil end
+                if zone_state[id] then zone_state[id] = nil end
+                if last_pos[id] then last_pos[id] = nil end
+                return
+        end
+
+        local sec = sections[id]
+        if not sec then
+                sec = o:section() or ""
+                sections[id] = sec
+        end
+
+        local is_mob = (IsStalker(o) or IsMonster(o)) and true or false
+        local lp = last_pos[id]
+        local md2 = 0
+        if lp then
+                md2 = (pos.x - lp.x) * (pos.x - lp.x)
+                        + (pos.y - lp.y) * (pos.y - lp.y)
+                        + (pos.z - lp.z) * (pos.z - lp.z)
+        end
+
+        -- 1) живые персонажи: шаги
+        if is_mob and o:alive() then
+                if lp and md2 > STEP_MIN_D2 then
+                        push_event(pos.x, pos.y, pos.z, "step", "mv" .. id)
+                end
+                if lp then
+                        lp.x, lp.y, lp.z = pos.x, pos.y, pos.z
+                else
+                        last_pos[id] = { x = pos.x, y = pos.y, z = pos.z }
+                end
+                return
+        end
+
+        -- 2) аномальные зоны: гул + активация при приближении
+        if starts_with(sec, "zone_") then
+                local zs = zone_state[id]
+                local d3 = math.sqrt(dd2 + (pos.y - ap.y) * (pos.y - ap.y))
+                local near = d3 < ZONE_NEAR_M
+                if not zs then
+                        zs = { next = 0, near = near }
+                        zone_state[id] = zs
+                end
+                zone_pos[id] = { x = pos.x, y = pos.y, z = pos.z }
+                if near and not zs.near then
+                        -- подход/вход: зона активируется (шипение)
+                        push_event(pos.x, pos.y, pos.z, "anomaly", "anm" .. id, true)
+                end
+                if now >= (zs.next or 0) then
+                        push_event(pos.x, pos.y, pos.z, "anomaly", "anm" .. id)
+                        local interval
+                        if near then
+                                interval = 1100 + math.random(0, 400)
+                        else
+                                interval = mc.anm_pulse * 1000 + math.random(0, 2000)
+                        end
+                        zs.next = now + interval
+                end
+                zs.near = near
+                return
+        end
+
+        -- 3) болты: остановился рядом с зоной => активация
+        if starts_with(sec, "bolt") then
+                local bs = bolt_state[id]
+                if not bs then
+                        bs = { sx = pos.x, sy = pos.y, sz = pos.z,
+                                lx = pos.x, ly = pos.y, lz = pos.z,
+                                still = 0, done = false }
+                        bolt_state[id] = bs
+                else
+                        local bdx = pos.x - bs.lx
+                        local bdy = pos.y - bs.ly
+                        local bdz = pos.z - bs.lz
+                        if bdx * bdx + bdy * bdy + bdz * bdz > 0.0025 then
+                                bs.still = 0
+                        else
+                                bs.still = bs.still + MOVE_POLL_MS
+                        end
+                        bs.lx, bs.ly, bs.lz = pos.x, pos.y, pos.z
+                        local sdx = pos.x - bs.sx
+                        local sdy = pos.y - bs.sy
+                        local sdz = pos.z - bs.sz
+                        if not bs.done and bs.still >= BOLT_STOP_MS
+                                and (sdx * sdx + sdy * sdy + sdz * sdz) > BOLT_FLEW_D2 then
+                                bs.done = true
+                                local zid = nearest_zone_id(pos.x, pos.y, pos.z)
+                                if zid then
+                                        local zp = zone_pos[zid]
+                                        push_event(zp.x, zp.y, zp.z, "anomaly", "anm_act", true)
+                                        if zone_state[zid] then
+                                                zone_state[zid].next = now + 1500
+                                        end
+                                end
+                        end
+                end
+                return
+        end
+
+        -- 4) физика: трупы, бочки, коробки, гранаты, брошенные вещи
+        if mc.phys_enable and not excluded_section(sec) and lp then
+                if md2 > mc.phys_sens * mc.phys_sens then
+                        push_event(pos.x, pos.y, pos.z, "other", "mv" .. id)
+                end
+        end
+        if lp then
+                lp.x, lp.y, lp.z = pos.x, pos.y, pos.z
+        else
+                last_pos[id] = { x = pos.x, y = pos.y, z = pos.z }
+        end
+end
+
+local function poll_world()
         local a = db.actor
         if not a or not a:alive() then return end
         local aid = a:id()
         local ap = a:position()
         local maxd2 = (mc.max_dist + 5) * (mc.max_dist + 5)
+        local now = time_global()
+
         for id, st in pairs(db.storage) do
                 local o = st and st.object
                 if o and id ~= aid then
-                        local ok, is_alive_mob = pcall(function()
-                                return (IsStalker(o) or IsMonster(o)) and o:alive()
-                        end)
-                        if ok and is_alive_mob then
-                                local p = o:position()
-                                local ddx, ddz = p.x - ap.x, p.z - ap.z
-                                local dd2 = ddx * ddx + ddz * ddz
-                                if dd2 < maxd2 then
-                                        local lp = last_pos[id]
-                                        if lp then
-                                                local md2 = (p.x - lp.x) * (p.x - lp.x)
-                                                        + (p.y - lp.y) * (p.y - lp.y)
-                                                        + (p.z - lp.z) * (p.z - lp.z)
-                                                if md2 > MOVE_MIN_D2 then
-                                                        push_event(p.x, p.y, p.z, "step", "mv" .. id)
-                                                end
-                                        end
-                                        if lp then
-                                                lp.x = p.x
-                                                lp.y = p.y
-                                                lp.z = p.z
-                                        else
-                                                last_pos[id] = { x = p.x, y = p.y, z = p.z }
-                                        end
-                                elseif last_pos[id] then
-                                        last_pos[id] = nil
-                                end
-                        end
+                        pcall(process_object, o, id, ap, maxd2, now)
                 end
         end
 end
@@ -267,12 +472,28 @@ local function cleanup_stale()
         for id in pairs(last_pos) do
                 if not db.storage[id] then
                         last_pos[id] = nil
+                        sections[id] = nil
+                        zone_state[id] = nil
+                        zone_pos[id] = nil
+                        bolt_state[id] = nil
                 end
+        end
+        for id in pairs(sections) do
+                if not db.storage[id] then sections[id] = nil end
+        end
+        for id in pairs(zone_state) do
+                if not db.storage[id] then
+                        zone_state[id] = nil
+                        zone_pos[id] = nil
+                end
+        end
+        for id in pairs(bolt_state) do
+                if not db.storage[id] then bolt_state[id] = nil end
         end
 end
 
 -- ---------------------------------------------------------------------------
--- Источник 3: шаги самого игрока.
+-- Источник 5: шаги самого игрока.
 -- Ванильная сигнатура: (surface:string, power, is_crouching, flags).
 -- На modded exes первый аргумент - объект, поэтому просто не реагируем
 -- на не-строку (там свои механизмы, игроку свои шаги обычно не нужны).
@@ -489,6 +710,10 @@ local function on_load_state()
         for i = 1, #events do events[i] = nil end
         for k in pairs(throttle_t) do throttle_t[k] = nil end
         for k in pairs(last_pos) do last_pos[k] = nil end
+        for k in pairs(sections) do sections[k] = nil end
+        for k in pairs(zone_state) do zone_state[k] = nil end
+        for k in pairs(zone_pos) do zone_pos[k] = nil end
+        for k in pairs(bolt_state) do bolt_state[k] = nil end
         if hud then hud:hide_all() end
 end
 
@@ -504,7 +729,7 @@ local function on_actor_update(_, dt)
         -- сначала детект (события этого кадра), потом отрисовка
         if now - move_timer >= MOVE_POLL_MS then
                 move_timer = now
-                movement_poll()
+                poll_world()
         end
         if now - cleanup_timer >= 5000 then
                 cleanup_timer = now
@@ -516,20 +741,31 @@ local function on_actor_update(_, dt)
 end
 
 -- ---------------------------------------------------------------------------
--- Регистрация (on_game_start вызывается автоматически в каждом скрипте)
+-- Регистрация (on_game_start вызывается автоматически в каждом скрипте).
+-- Каждый RegisterScriptCallback под pcall: неизвестное имя не должно ломать
+-- регистрацию остальных колбэков.
 -- ---------------------------------------------------------------------------
+local function safe_register(name, fn)
+        pcall(RegisterScriptCallback, name, fn)
+end
+
 function on_game_start()
         refresh_config()
-        RegisterScriptCallback("actor_on_update", on_actor_update)
-        RegisterScriptCallback("actor_on_first_update", refresh_config)
-        RegisterScriptCallback("on_option_change", refresh_config)
-        RegisterScriptCallback("npc_on_hear_callback", on_npc_hear)
-        RegisterScriptCallback("actor_on_footstep", on_footstep)
-        RegisterScriptCallback("GUI_on_show", on_gui_show)
-        RegisterScriptCallback("GUI_on_hide", on_gui_hide)
-        RegisterScriptCallback("on_screen_resolution_changed", on_res_changed)
-        RegisterScriptCallback("actor_on_net_destroy", on_actor_net_destroy)
-        RegisterScriptCallback("load_state", on_load_state)
+        safe_register("actor_on_update", on_actor_update)
+        safe_register("actor_on_first_update", refresh_config)
+        safe_register("on_option_change", refresh_config)
+        safe_register("npc_on_hear_callback", on_npc_hear)
+        safe_register("anomaly_on_before_activate", on_anomaly_activate)
+        safe_register("actor_on_feeling_anomaly", on_actor_feel_anomaly)
+        safe_register("physic_object_on_hit_callback", on_physic_hit)
+        safe_register("physic_object_on_use_callback", on_physic_use)
+        safe_register("actor_on_item_drop", on_item_drop)
+        safe_register("actor_on_footstep", on_footstep)
+        safe_register("GUI_on_show", on_gui_show)
+        safe_register("GUI_on_hide", on_gui_hide)
+        safe_register("on_screen_resolution_changed", on_res_changed)
+        safe_register("actor_on_net_destroy", on_actor_net_destroy)
+        safe_register("load_state", on_load_state)
 end
 
 -- Отладочный доступ (только чтение; для диагностики и тестов):
@@ -539,4 +775,5 @@ sound_vision_debug = {
         events = events,
         push_event = push_event,
         classify = classify,
+        refresh_config = refresh_config,
 }

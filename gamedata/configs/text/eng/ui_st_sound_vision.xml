@@ -5,6 +5,7 @@
 <string id="ui_mcm_sound_vision_section_general"><text>General</text></string>
 <string id="ui_mcm_sound_vision_section_size"><text>Size and animation</text></string>
 <string id="ui_mcm_sound_vision_section_categories"><text>Sound types</text></string>
+<string id="ui_mcm_sound_vision_section_detect"><text>Detection sources</text></string>
 <!-- General -->
 <string id="ui_mcm_sound_vision_general_enabled"><text>Enable mod</text></string>
 <string id="ui_mcm_sound_vision_general_enabled_desc"><text>Draw expanding rings on screen at the position of any sound source, even through walls.</text></string>
@@ -21,12 +22,12 @@
 <string id="ui_mcm_sound_vision_size_size_px_desc"><text>Size of the ring for a close sound source (in HUD virtual pixels).</text></string>
 <string id="ui_mcm_sound_vision_size_ref_dist"><text>Reference distance (m)</text></string>
 <string id="ui_mcm_sound_vision_size_ref_dist_desc"><text>At this distance a ring has full size. Farther sources get smaller rings.</text></string>
-<string id="ui_mcm_sound_vision_size_min_frac"><text>Minimum size (fraction)</text></string>
-<string id="ui_mcm_sound_vision_size_min_frac_desc"><text>How small the ring can get for the farthest sounds (0.05-0.5 of full size).</text></string>
+<string id="ui_mcm_sound_vision_size_min_frac"><text>Minimum size (%)</text></string>
+<string id="ui_mcm_sound_vision_size_min_frac_desc"><text>How small the ring can get for the farthest sounds, percent of full size (5-50).</text></string>
 <string id="ui_mcm_sound_vision_size_rings"><text>Waves per sound</text></string>
 <string id="ui_mcm_sound_vision_size_rings_desc"><text>How many expanding rings are drawn for one sound (1-3, sonar style).</text></string>
-<string id="ui_mcm_sound_vision_size_opacity"><text>Brightness</text></string>
-<string id="ui_mcm_sound_vision_size_opacity_desc"><text>Overall opacity of the rings (0.2-1.0).</text></string>
+<string id="ui_mcm_sound_vision_size_opacity"><text>Brightness (%)</text></string>
+<string id="ui_mcm_sound_vision_size_opacity_desc"><text>Overall opacity of the rings, percent (20-100).</text></string>
 <!-- Categories -->
 <string id="ui_mcm_sound_vision_categories_cat_weapon"><text>Gunshots and weapons</text></string>
 <string id="ui_mcm_sound_vision_categories_cat_weapon_desc"><text>Red rings: shots, explosions, grenades.</text></string>
@@ -36,6 +37,15 @@
 <string id="ui_mcm_sound_vision_categories_cat_step_desc"><text>Yellow rings: anyone walking or running nearby, even behind walls.</text></string>
 <string id="ui_mcm_sound_vision_categories_cat_monster"><text>Monsters</text></string>
 <string id="ui_mcm_sound_vision_categories_cat_monster_desc"><text>Purple rings: mutant sounds - steps, growls, attacks.</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_anomaly"><text>Anomalies</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_anomaly_desc"><text>Turquoise rings: idle hum of anomalies and activation hiss (bolt, approach, entry).</text></string>
 <string id="ui_mcm_sound_vision_categories_cat_other"><text>Physics and other</text></string>
-<string id="ui_mcm_sound_vision_categories_cat_other_desc"><text>Blue rings: dropped items, doors, object collisions.</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_other_desc"><text>Blue rings: pushed barrels and boxes, knife hits, dropped items, grenades, falling bodies.</text></string>
+<!-- Detection -->
+<string id="ui_mcm_sound_vision_detect_anm_pulse"><text>Anomaly hum pause (sec)</text></string>
+<string id="ui_mcm_sound_vision_detect_anm_pulse_desc"><text>How often each nearby anomaly pulses while idling (its hum plays periodically). Real anomalies hum every few seconds.</text></string>
+<string id="ui_mcm_sound_vision_detect_phys_enable"><text>Track moving objects</text></string>
+<string id="ui_mcm_sound_vision_detect_phys_enable_desc"><text>Watch physical objects near the player: a pushed or knocked barrel, a sliding box, a thrown grenade all produce rings. Disable if it causes clutter.</text></string>
+<string id="ui_mcm_sound_vision_detect_phys_sens"><text>Object move threshold (cm)</text></string>
+<string id="ui_mcm_sound_vision_detect_phys_sens_desc"><text>How far an object must move to count as "makes sound". Lower = more sensitive (more rings). Default 12 cm.</text></string>
 </string_table>
