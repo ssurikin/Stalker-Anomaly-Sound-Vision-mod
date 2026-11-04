@@ -1,0 +1,90 @@
+name: build-worlded-cli
+
+# worlded-cli (диздок worldmap_spawn_design §4.1, такт 9): сборка
+# консольного конвейера WorldEd без локального тулчейна. Форк живёт в
+# tools/pzworlded; exe+DLL публикуются в Release «worlded-cli-latest»
+# и вендорятся обратно в tools/worlded-cli/ — проект самодостаточен,
+# publish.py скачивает их только если вендора нет.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, spawn-and-worldmap]
+    paths:
+      - "tools/pzworlded/**"
+      - ".github/workflows/build-worlded-cli.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: cmd
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: "5.15.2"
+          arch: win64_msvc2019_64
+          cache: true
+
+      - name: Build worlded-cli (qmake + nmake)
+        working-directory: tools/pzworlded
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          if not exist dist-cli mkdir dist-cli
+          cd dist-cli
+          qmake ..\PZWorldEd.pro -r -spec win32-msvc "CONFIG+=release"
+          nmake /NOLOGO
+
+      - name: Deploy Qt runtime next to exe
+        working-directory: tools/pzworlded
+        run:
+          windeployqt --release --no-translations --compiler-runtime worlded-cli.exe
+
+      - name: Package (exe + Qt-DLL + правила + заглушка ZombieSpawnMap)
+        shell: pwsh
+        run: |
+          $stage = 'package'
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          $fork = 'tools/pzworlded'
+          Copy-Item "$fork/worlded-cli.exe" $stage
+          Copy-Item "$fork/*.dll" $stage -ErrorAction SilentlyContinue
+          foreach ($dir in 'platforms', 'styles', 'imageformats') {
+            if (Test-Path "$fork/$dir") { Copy-Item "$fork/$dir" $stage -Recurse -Force }
+          }
+          foreach ($f in 'Rules.txt', 'Blends.txt', 'MapBaseXML.txt') {
+            Copy-Item "$fork/$f" $stage
+          }
+          Copy-Item 'tools/worlded-cli/Map_ZombieSpawnMap.png' $stage
+          Compress-Archive -Force -Path "$stage/*" -DestinationPath 'worlded-cli.zip'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: worlded-cli
+          path: worlded-cli.zip
+
+      - name: Publish to Release (worlded-cli-latest)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: worlded-cli-latest
+          name: worlded-cli
+          files: worlded-cli.zip
+          overwrite_files: true
+
+      # Автономность проекта: exe вендорится в сам репозиторий — после
+      # первого прогона клоны работают офлайн, автозагрузка не нужна.
+      - name: Vendor exe into repo (tools/worlded-cli/)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Copy-Item 'package/*' 'tools/worlded-cli/' -Recurse -Force
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/worlded-cli
+          git commit -m "CI: вендор worlded-cli (автосборка воркфлоу)" || echo "nothing to commit"
+          git push

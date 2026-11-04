@@ -1,0 +1,78 @@
+# Уведомление в Telegram о каждом пуше: список коммитов с гиперссылками.
+# Secrets (Settings -> Secrets and variables -> Actions):
+#   TG_TOKEN    - токен бота от @BotFather
+#   TG_CHAT_ID  - chat_id получателя (боту должен быть нажат Start)
+
+name: push-notify
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Notify in Telegram
+        env:
+          TG_TOKEN:   ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          REPO:       ${{ github.repository }}
+          BRANCH:     ${{ github.ref_name }}
+          PUSHER:     ${{ github.event.pusher.name }}
+          COMMITS:    ${{ toJSON(github.event.commits) }}
+          TOTAL:      ${{ github.event.size }}
+          COMPARE:    ${{ github.event.compare }}
+        run: |
+          set -euo pipefail
+
+          plural() {
+            local n=$1
+            if [ "$((n % 10))" -eq 1 ] && [ "$((n % 100))" -ne 11 ]; then
+              echo "коммит"
+            elif [ "$((n % 10))" -ge 2 ] && [ "$((n % 10))" -le 4 ] && \
+                 { [ "$((n % 100))" -lt 10 ] || [ "$((n % 100))" -ge 20 ]; }; then
+              echo "коммита"
+            else
+              echo "коммитов"
+            fi
+          }
+
+          COUNT=$(printf '%s' "${COMMITS}" | jq 'length')
+
+          if [ "${COUNT}" -eq 0 ]; then
+            # пуш без коммитов: например, тег
+            TEXT="🔧 ${REPO} → ${BRANCH}"$'\n'"(пуш без коммитов — например, тег)"
+          else
+            # Список: тема коммита = гиперссылка на коммит (parse_mode=HTML)
+            LIST=$(printf '%s' "${COMMITS}" | jq -r --arg repo "${REPO}" '
+              .[] |
+              "• <a href=\"https://github.com/\($repo)/commit/\(.id)\">" +
+              ((.message // "") | split("\n")[0] |
+                if . == "" then "(без описания)" else . end |
+                if length > 80 then .[0:79] + "…" else . end |
+                gsub("&";"&amp;") | gsub("<";"&lt;") | gsub(">";"&gt;")) +
+              "</a>"')
+
+            TEXT="🔧 ${REPO} → ${BRANCH}"$'\n'"👤 ${PUSHER:-unknown}: ${COUNT} $(plural "${COUNT}")"$'\n'"${LIST}"
+
+            MORE=$(( ${TOTAL:-0} - COUNT ))
+            if [ "${MORE}" -gt 0 ]; then
+              TEXT="${TEXT}"$'\n'"…и ещё ${MORE} $(plural "${MORE}")"
+            fi
+
+            if [ -n "${COMPARE:-}" ]; then
+              TEXT="${TEXT}"$'\n'"🔗 <a href=\"${COMPARE}\">все изменения</a>"
+            fi
+          fi
+
+          RESP=$(curl -fsS "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TG_CHAT_ID}" \
+            --data-urlencode "parse_mode=HTML" \
+            --data-urlencode "text=${TEXT}")
+          echo "${RESP}" | grep -q '"ok":true'
