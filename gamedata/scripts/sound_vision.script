@@ -1,5 +1,5 @@
 -- ============================================================================
--- Sound Vision v1.1
+-- Sound Vision v1.2
 -- Визуальная индикация источников звука для слабослышащих игроков.
 --
 -- Что делает: рисует на экране расходящиеся кольца в точке любого звука
@@ -26,8 +26,10 @@
 --   7) actor_on_footstep (ванильный) - шаги самого игрока (выкл. по умолч.)
 --
 -- Отрисовка: пул CUIStatic-колец (белая текстура ui\sv_ring.dds + цвет через
--- SetTextureColor), позиция - game.world2ui() (мир -> координаты HUD),
--- анимация - расширение и затухание кольца.
+-- SetTextureColor), позиция - game.world2ui() (мир -> координаты HUD) для
+-- источников в кадре. Источники за спиной и вне кадра НЕ зеркалятся: кольцо
+-- прижимается к краю экрана на своей половине (как квестовые метки в
+-- современных играх), анимация - расширение и затухание кольца.
 --
 -- Сигнатуры и паттерны взяты из:
 --   robe127.github.io/stalker-anomaly-modding-guide (callbacks-reference)
@@ -509,48 +511,131 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Проекция мировых координат в координаты HUD (виртуальное пространство UI).
--- game.world2ui(pos, clamp_to_screen [, allow_offscreen])
---   - без 3-го аргумента внеэкранная точка даёт -9999
---   - 3-й аргумент (движки на базе xray-monolith) возвращает координаты
---     даже вне экрана; определяем поддержку автоматически
+--
+-- game.world2ui() честна только для точек ПЕРЕД камерой и в кадре. Для точек
+-- за камерой перспектива ЗЕРКАЛИТ координаты (тот самый "зеркальный" ореол),
+-- для точек вне кадра - даёт сырые/мусорные значения. Поэтому всё, что не
+-- попало в кадр, проецируем сами: строим камерный базис (вперёд/право/верх),
+-- берём направление на источник и прижимаем кольцо к краю экрана, как
+-- квестовые метки в современных играх. Знаки направления при этом не
+-- искажены, поэтому кольцо уходит на СВОЮ половину экрана: звук слева - у
+-- левого края, звук справа - у правого (выше/ниже - к своему краю тоже).
+-- Источник строго за спиной (в пределах 0.3 м от вертикали "прямо назад")
+-- держит последнюю известную сторону (ev.side), не прыгая между краями.
+--
+-- Калибровка (2 пробы у движка, раз в 2 сек):
+--   - точка в 10 м прямо по взгляду -> центр экрана (cx, cy) в UI-пикселях;
+--   - точка, смещённая на ~8.6 градуса по горизонтали -> знак "право" (s),
+--     страховка от любой ориентации осей движка.
+-- Границы экрана в UI-пикселях: (0..2*cx, 0..2*cy). Калибровка не зависит
+-- от дистанции и направления взгляда; пересчитывается при смене разрешения.
+--
 -- Возвращает: sx, sy, edge (true = прижато к краю экрана) | nil
 -- ---------------------------------------------------------------------------
 local tmp_v3 = vector()
 local tmp_v2 = vector2()
 local use_w2u3 = true
 local OFFSCREEN = -9000
+local PIN_MARGIN = 40          -- отступ прижатого кольца от края экрана, UI-пикселей
 
 local function probe_world2ui()
-        local ok = pcall(game.world2ui, tmp_v3:set(0, 0, 0), false, true)
+        local ok = pcall(game.world2ui, tmp_v3:set(0, 0, 0), false, false)
         use_w2u3 = ok
 end
 
-local function world2ui(v, clamp)
+-- Строгая проекция: для точек вне кадра/за камерой возвращает мусор или nil,
+-- вызывающий обязан проверять результат и не доверять ему за камерой.
+local function w2ui(v)
         if use_w2u3 then
-                local ok, res = pcall(game.world2ui, v, clamp, true)
-                if ok and res ~= nil then return res end
+                local ok, res = pcall(game.world2ui, v, false, false)
+                if ok then return res end
         end
-        return game.world2ui(v, clamp)
+        local ok2, res2 = pcall(game.world2ui, v, false)
+        if ok2 then return res2 end
+        return nil
 end
 
-local function to_screen(x, y, z)
-        local pos = tmp_v3:set(x, y, z)
-        local v = world2ui(pos, false)
-        if v and v.x > OFFSCREEN and v.y > OFFSCREEN then
-                -- координаты есть: убеждаемся, что точка не за камерой
-                local cd = device().cam_dir
-                local cp = device().cam_pos
-                local dot = (x - cp.x) * cd.x + (y - cp.y) * cd.y + (z - cp.z) * cd.z
-                if dot >= 0 then
-                        return v.x, v.y, false
+local cal = nil                -- { cx, cy, s } - калибровка проекции
+local cal_next_try = 0
+local cal_v = vector()
+local last_rx, last_rz = 1, 0  -- базис "право" для взгляда строго вверх/вниз
+
+local function calibrate()
+        local d = device()
+        local f = d.cam_dir
+        local hl = math.sqrt(f.x * f.x + f.z * f.z)
+        if hl < 1e-3 then return end           -- взгляд строго вверх/вниз
+        local cp = d.cam_pos
+        local D = 10                            -- проба в 10 м перед камерой
+        local td = 0.15                         -- смещение пробы ~8.6 градусов
+        local c = w2ui(cal_v:set(cp.x + f.x * D, cp.y + f.y * D, cp.z + f.z * D))
+        if not (c and c.x > OFFSCREEN and c.y > OFFSCREEN) then return end
+        if c.x < 100 or c.y < 100 then return end
+        local rx, rz = f.z / hl, -f.x / hl      -- горизонтальный базис "право"
+        local p = w2ui(cal_v:set(cp.x + f.x * D + rx * D * td,
+                cp.y + f.y * D, cp.z + f.z * D + rz * D * td))
+        if not (p and p.x > OFFSCREEN and p.y > OFFSCREEN) then return end
+        local s = (p.x - c.x) >= 0 and 1 or -1
+        cal = { cx = c.x, cy = c.y, s = s }
+end
+
+local function to_screen(x, y, z, ev)
+        local now = time_global()
+        if not cal or now >= cal_next_try then
+                cal_next_try = now + 2000
+                pcall(calibrate)
+        end
+        local d = device()
+        local f = d.cam_dir
+        local cp = d.cam_pos
+        local dx, dy, dz = x - cp.x, y - cp.y, z - cp.z
+        -- вперёд-компонента: > 0 = источник в передней полусфере камеры
+        local zf = dx * f.x + dy * f.y + dz * f.z
+        if zf > 0 then
+                local v = w2ui(tmp_v3:set(x, y, z))
+                if v and v.x > OFFSCREEN and v.y > OFFSCREEN then
+                        if not cal then
+                                -- калибровки ещё нет: рисуем как раньше
+                                return v.x, v.y, false
+                        end
+                        -- на экране = внутри границ с запасом. Координаты у
+                        -- самой границы или за ней - вне кадра, пиним ниже.
+                        if v.x >= 2 and v.x <= cal.cx * 2 - 2
+                                and v.y >= 2 and v.y <= cal.cy * 2 - 2 then
+                                return v.x, v.y, false
+                        end
                 end
         end
-        -- вне экрана / за камерой: прижимаем к краю экрана (индикатор направления)
-        local vc = world2ui(pos, true)
-        if vc and vc.x > OFFSCREEN and vc.y > OFFSCREEN then
-                return vc.x, vc.y, true
+        -- вне кадра или за камерой: пин к краю экрана по камерному направлению
+        local hl = math.sqrt(f.x * f.x + f.z * f.z)
+        local rx, rz = last_rx, last_rz
+        if hl > 1e-3 then
+                rx = f.z / hl
+                rz = -f.x / hl
+                last_rx, last_rz = rx, rz
         end
-        return nil
+        local X = dx * rx + dz * rz                                        -- "право"
+        local Y = dx * (f.y * rz) + dy * (f.z * rx - f.x * rz) + dz * (-f.y * rx) -- "верх"
+        local s = cal and cal.s or 1
+        if ev and math.abs(X) > 0.4 then
+                ev.side = (s * X > 0) and 1 or -1
+        end
+        if zf <= 0 and math.abs(X) < 0.3 then
+                -- источник строго за спиной: держим последнюю известную сторону
+                local side = (ev and ev.side) or 1
+                X = s * side
+        end
+        if not cal then return nil end
+        -- пересечение луча (cx,cy)+(s*X,-Y) с прямоугольником экрана (с отступом)
+        local hw = cal.cx - PIN_MARGIN
+        local hh = cal.cy - PIN_MARGIN
+        local ax, ay = math.abs(X), math.abs(Y)
+        local tx = (ax > 1e-9) and hw / ax or math.huge
+        local ty = (ay > 1e-9) and hh / ay or math.huge
+        local t = math.min(tx, ty)
+        local ex = cal.cx + s * X * t
+        local ey = cal.cy - Y * t
+        return ex, ey, true
 end
 
 -- ---------------------------------------------------------------------------
@@ -606,7 +691,7 @@ function SoundVisionHUD:update_rings()
                 if age > life then
                         e.dead = true
                 else
-                        local sx, sy, edge = to_screen(e.x, e.y, e.z)
+                        local sx, sy, edge = to_screen(e.x, e.y, e.z, e)
                         if sx then
                                 local col = KIND_COLOR[e.kind] or KIND_COLOR.other
                                 local base = mc.size_px * e.scale
@@ -623,7 +708,12 @@ function SoundVisionHUD:update_rings()
                                                         if edge then al = al * 0.75 end
                                                         if al > 0.03 then
                                                                 el:Show(true)
-                                                                el:SetWndPos(tmp_v2:set(sx, sy))
+                                                                if edge then
+                                                                        -- пин: (sx,sy) - ЦЕНТР кольца, чтобы не вылезало за край
+                                                                        el:SetWndPos(tmp_v2:set(sx - s * 0.5, sy - s * 0.5))
+                                                                else
+                                                                        el:SetWndPos(tmp_v2:set(sx, sy))
+                                                                end
                                                                 if self.can_resize then
                                                                         el:SetWndSize(tmp_v2:set(s, s))
                                                                 end
@@ -698,6 +788,8 @@ local function on_gui_hide(gui_name, obj)
 end
 
 local function on_res_changed()
+        cal = nil                 -- UI-пространство сменилось: перекалибровка
+        cal_next_try = 0
         if hud then hud:hide_all() end
 end
 
