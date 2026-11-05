@@ -32,12 +32,12 @@ local mc = {
         anchor_th   = 0.005, -- ВНУТРЕННИЙ: порог «стрелок слышен» при выборе
                              -- якоря слуха (стрелок vs точка попадания)
         max_dist    = 45,     -- радиус опроса мира / лимит в режиме "по дистанции", м
-        lifetime    = 1.2,    -- время жизни волны, сек
-        throttle    = 0.3,    -- пауза между волнами одного источника, сек
+        lifetime    = 1.5,    -- время жизни волны, сек
+        throttle    = 0.5,    -- пауза между волнами одного источника, сек
         size_px     = 96,     -- размер кольца (виртуальные пиксели HUD)
         ref_dist    = 8,      -- базовое расстояние полного размера, м
         min_frac    = 0.12,   -- минимальный размер дальнего звука (доля)
-        rings       = 2,      -- волн на один звук (1-3)
+        rings       = 1,      -- волн на один звук (1-3)
         opacity     = 0.85,   -- яркость (доля)
         cat_weapon  = true,   -- категория: выстрелы и оружие
         cat_voice   = true,   -- категория: голос и речь
@@ -104,12 +104,12 @@ local function refresh_config()
                 tonumber(sound_vision_mcm.get_config("loud_th")) or 10)) / 1000
         mc.anchor_th   = 0.005
         mc.max_dist    = tonumber(sound_vision_mcm.get_config("max_dist")) or 45
-        mc.lifetime    = tonumber(sound_vision_mcm.get_config("lifetime")) or 1.2
-        mc.throttle    = tonumber(sound_vision_mcm.get_config("throttle")) or 0.3
+        mc.lifetime    = tonumber(sound_vision_mcm.get_config("lifetime")) or 1.5
+        mc.throttle    = tonumber(sound_vision_mcm.get_config("throttle")) or 0.5
         mc.size_px     = tonumber(sound_vision_mcm.get_config("size_px")) or 96
         mc.ref_dist    = math.max(0.5, tonumber(sound_vision_mcm.get_config("ref_dist")) or 8)
         mc.min_frac    = (tonumber(sound_vision_mcm.get_config("min_frac")) or 12) / 100
-        mc.rings       = math.max(1, math.min(3, math.floor(tonumber(sound_vision_mcm.get_config("rings")) or 2)))
+        mc.rings       = math.max(1, math.min(3, math.floor(tonumber(sound_vision_mcm.get_config("rings")) or 1)))
         mc.opacity     = (tonumber(sound_vision_mcm.get_config("opacity")) or 85) / 100
         mc.cat_weapon  = sound_vision_mcm.get_config("cat_weapon") ~= false
         mc.cat_voice   = sound_vision_mcm.get_config("cat_voice") ~= false
