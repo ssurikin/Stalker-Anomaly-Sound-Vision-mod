@@ -15,8 +15,18 @@
 --   - Подписи опций MCM берёт из configs/text/<lang>/ui_st_sound_vision.xml
 --     по ключам ui_mcm_sound_vision_<раздел>_<опция> (+ _desc).
 -- ============================================================================
+
+-- DIK_MINUS («-» после 0) - клавиша хоткея ореолов по умолчанию (v2.9.2).
+-- DIK_keys экспортируется движком, но скрипт может грузиться и вне игры
+-- (тесты, статический разбор) - на случай отсутствия биндинга fallback: 12.
+local DIK_MINUS = 12
+pcall(function() DIK_MINUS = DIK_keys.DIK_MINUS end)
+
 local defaults = {
         enabled     = true,    -- мод включён
+        toggle_key  = DIK_MINUS, -- хоткей показа/скрытия ореолов (v2.9.2): DIK-код
+                               -- клавиши, по умолчанию "-" (DIK_MINUS); ловится
+                               -- колбэком on_key_press (см. sound_vision.script)
         show_own    = false,   -- показывать собственные звуки игрока
         by_loudness = true,    -- слышимость по громкости (как в игре)
         loud_th     = 10,      -- порог слышимости, промилле громкости; 0 = показывать
@@ -63,6 +73,7 @@ local defaults = {
 -- имя опции -> группа в дереве MCM (нужно для пути ui_mcm.get)
 local opt_group = {
         enabled     = "general",
+        toggle_key  = "general",
         show_own    = "general",
         by_loudness = "hearing",
         loud_th     = "hearing",
@@ -129,6 +140,11 @@ function on_mcm_load()
                         { id = "general", sh = true, text = "ui_mcm_sound_vision_section_general", gr = {
                                 { id = "title_general", type = "title", text = "ui_mcm_sound_vision_section_general" },
                                 { id = "enabled",  type = "check", val = 1, def = defaults.enabled },
+                                -- v2.9.2: хоткей показа/скрытия ореолов - тот же
+                                -- переключатель «мод вкл/выкл», но прямо в игре.
+                                -- key_bind хранит DIK-код клавиши (см. документацию
+                                -- MCM: у key_bind обязательно val = 2).
+                                { id = "toggle_key", type = "key_bind", val = 2, def = defaults.toggle_key },
                                 { id = "show_own", type = "check", val = 1, def = defaults.show_own },
                                 { id = "max_dist", type = "track", val = 2,
                                         def = defaults.max_dist, min = 5, max = 100, step = 1 },

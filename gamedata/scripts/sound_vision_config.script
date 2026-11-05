@@ -12,10 +12,12 @@
 -- загружает скрипт при первом обращении к имени модуля из любого файла):
 --   mc             - кэш настроек; потребители читают напрямую (горячий путь
 --                    рендера), МЕНЯТЬ ИЗВНЕ ЗАПРЕЩЕНО - только refresh_config
+--                    и toggle_enabled
 --   refresh_config - перечитать все настройки из MCM
+--   toggle_enabled - переключить показ ореолов хоткеем (v2.9.2)
 --
 -- Вызывают: sound_vision (on_game_start / actor_on_first_update /
--- on_option_change), sound_vision_mcm (on_option_change).
+-- on_option_change / on_key_press), sound_vision_mcm (on_option_change).
 -- ============================================================================
 
 -- Кэш значений. Ключи совпадают с опциями MCM (см. sound_vision_mcm.script).
@@ -68,8 +70,31 @@ local mc = {
 
 -- Перечитать настройки из MCM. Колбэк on_option_change приходит во все
 -- *_mcm.script при применении настроек; движок вызывает на старте игры.
+
+-- ---------------------------------------------------------------------------
+-- Хоткей показа/скрытия ореолов (v2.9.2, MCM «Общие» ->
+-- «Sound Vision: показывать/скрывать ореолы (клавиша)»). Переопределение
+-- времени выполнения: nil - действует галочка «Включить мод» из MCM;
+-- true/false - состояние, выставленное нажатием клавиши (toggle_enabled).
+-- Переживает refresh_config (перезагрузка сохранения или применение посторонних
+-- настроек MCM не возвращает ореолы, которые игрок только что спрятал), но
+-- сбрасывается, когда игрок сам меняет галочку в MCM - у неё приоритет.
+-- Новая игра/перезапуск (свежее Lua-состояние) - снова по галочке.
+-- ---------------------------------------------------------------------------
+local hotkey_override  = nil
+local mcm_enabled_prev = nil
+
 local function refresh_config()
-        mc.enabled     = sound_vision_mcm.get_config("enabled") ~= false
+        -- Хоткей-семантика: если галочку «Включить мод» поменяли в MCM - её
+        -- значение авторитетно, переопределение клавишей сбрасываем. Если не
+        -- меняли - переопределение (если есть) сильнее галочки.
+        local mcm_enabled = sound_vision_mcm.get_config("enabled") ~= false
+        if mcm_enabled_prev ~= nil and mcm_enabled ~= mcm_enabled_prev then
+                hotkey_override = nil
+        end
+        mcm_enabled_prev = mcm_enabled
+        mc.enabled = mcm_enabled
+        if hotkey_override ~= nil then mc.enabled = hotkey_override end
         mc.show_own    = sound_vision_mcm.get_config("show_own") == true
         mc.by_loudness = sound_vision_mcm.get_config("by_loudness") ~= false
         -- Порог слышимости (v2.8.2): в MCM - в тысячных долях (промилле),
@@ -141,10 +166,32 @@ local function refresh_config()
         end
 end
 
+-- Переключить показ ореолов клавишей (v2.9.2): тот же флаг «мод вкл/выкл»,
+-- что у галочки «Включить мод» в MCM, только прямо в игре. Возвращает новое
+-- состояние (true - ореолы показываются). Вызывается из sound_vision
+-- (on_key_press).
+local function toggle_enabled()
+        local mcm_enabled = sound_vision_mcm.get_config("enabled") ~= false
+        -- ВАЖНО: не "(override ~= nil) and override or mcm_enabled" - при
+        -- override=false эта конструкция проваливается в mcm_enabled (классическая
+        -- lua-ловушка "and-or"), и второй нажим не возвращает ореолы.
+        local cur = mcm_enabled
+        if hotkey_override ~= nil then cur = hotkey_override end
+        hotkey_override = not cur
+        mc.enabled = hotkey_override
+        local L = _G.sound_vision_log
+        if L and L.on() then
+                L.dbg("CONFIG", "hotkey toggle: enabled=%s (mcm checkbox=%s)",
+                        tostring(mc.enabled), tostring(mcm_enabled))
+        end
+        return mc.enabled
+end
+
 -- ============================================================================
 -- Экспорт модуля
 -- ============================================================================
 _G.sound_vision_config = {
         mc             = mc,
         refresh_config = refresh_config,
+        toggle_enabled = toggle_enabled,
 }

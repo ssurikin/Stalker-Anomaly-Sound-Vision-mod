@@ -60,7 +60,10 @@ names did not change, nothing needs manual editing.
 
 Everything is configured in the MCM, and every option has a description on hover:
 
-- **General** — enable/disable the mod, your own sounds, detection range, wave lifetime;
+- **General** — enable/disable the mod, your own sounds, detection range, wave lifetime,
+  and the **"Sound Vision: show/hide halos" hotkey**: press it right in the game to show
+  or hide all rings without opening any menu. Default key: `-` (the minus to the right of
+  0); rebind it in the MCM;
 - **Hearing** — audibility mode and the optional hearing threshold;
 - **Size and animation** — ring size, waves per sound, brightness, large explosion rings;
 - **Sound types** — six category toggles (weapon, voice, steps, mutants, anomalies, physics);

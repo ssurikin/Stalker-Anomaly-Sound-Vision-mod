@@ -9,6 +9,8 @@
 <!-- General -->
 <string id="ui_mcm_sound_vision_general_enabled"><text>Включить мод</text></string>
 <string id="ui_mcm_sound_vision_general_enabled_desc"><text>Рисовать расходящиеся кольца на экране в точке источника любого звука, в том числе сквозь стены.</text></string>
+<string id="ui_mcm_sound_vision_general_toggle_key"><text>Sound Vision: показывать/скрывать ореолы (клавиша)</text></string>
+<string id="ui_mcm_sound_vision_general_toggle_key_desc"><text>Хоткей, который прямо в игре показывает или скрывает все кольца звука - тот же переключатель, что галочка «Включить мод», без открытия MCM. По умолчанию: МИНУС (клавиша «-» справа от 0). Для переназначения щёлкните поле в MCM и нажмите любую клавишу. Переключение держится до перезапуска игры или до изменения галочки «Включить мод» в MCM - новая сессия начинается с состояния этой галочки.</text></string>
 <string id="ui_mcm_sound_vision_general_show_own"><text>Показывать свои звуки</text></string>
 <string id="ui_mcm_sound_vision_general_show_own_desc"><text>Кольца для собственных шагов и выстрелов игрока. По умолчанию выключено - свои звуки вы ощущаете и так.</text></string>
 <string id="ui_mcm_sound_vision_general_max_dist"><text>Дальность обнаружения (м)</text></string>

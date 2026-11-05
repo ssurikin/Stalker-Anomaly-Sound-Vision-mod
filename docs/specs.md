@@ -415,6 +415,46 @@ built-in defaults when MCM is not installed. Values are cached in
 
 The Russian label file is **CP1251-encoded** — keep that encoding when editing.
 
+### 10.1 Hotkey: show/hide halos (v2.9.2)
+
+The "General" MCM section contains a `key_bind` option (`toggle_key`, stored as a DIK
+code, default `DIK_keys.DIK_MINUS` = 12 — the "-" key to the right of 0). Per the MCM
+documentation, `key_bind` options must have `val = 2`, and the stored value is the
+`DIK_keys` value of the key:
+
+```lua
+{ id = "toggle_key", type = "key_bind", val = 2, def = defaults.toggle_key }
+```
+
+Key presses are caught with the standard Anomaly script callback:
+
+```lua
+RegisterScriptCallback("on_key_press", fn)  -- signature: fn(dik)
+```
+
+(the axr_main callback table documents `on_key_press — Params: (<number>)`; the number is
+the DIK code). The engine dispatches it from `CLevel::IR_OnKeyboardPress`, i.e. only
+during gameplay: the main menu (including the MCM while the player rebinds the key), the
+console and dialogs do not feed it — so rebinding cannot cause a phantom toggle, and no
+extra menu guard is needed (`db.actor` is kept as a cheap sanity check). The handler
+compares the pressed key with the bound one read via
+`sound_vision_mcm.get_config("toggle_key")`
+(`ui_mcm.get("sound_vision/general/toggle_key")`; without MCM the built-in default is
+used) and calls `sound_vision_config.toggle_enabled()`.
+
+Toggle semantics: the key flips the same `mc.enabled` flag that the "Enable mod" checkbox
+controls. The state is kept as a runtime override in `sound_vision_config`:
+
+- the override survives `refresh_config()` — a save/load or applying unrelated MCM
+  options does not resurrect halos the player just hid;
+- it resets when the player changes the "Enable mod" checkbox itself in the MCM — the
+  checkbox is authoritative;
+- a game restart (fresh Lua state) starts from the checkbox value again.
+
+Every toggle is logged as `CONFIG hotkey toggle: enabled=... (mcm checkbox=...)`. MCM has
+no `ui_mcm.set`, so the checkbox itself is not rewritten by the hotkey — on purpose: the
+checkbox remains the persistent setting, the hotkey is a per-session switch.
+
 ## 11. Constants and module responsibilities
 
 - `POOL = 32` (ring pool capacity) and `HEAR_CAP = 150` (loudness show limit, m) — in

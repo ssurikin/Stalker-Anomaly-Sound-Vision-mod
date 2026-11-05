@@ -9,6 +9,8 @@
 <!-- General -->
 <string id="ui_mcm_sound_vision_general_enabled"><text>Enable mod</text></string>
 <string id="ui_mcm_sound_vision_general_enabled_desc"><text>Draw expanding rings on screen at the position of any sound source, even through walls.</text></string>
+<string id="ui_mcm_sound_vision_general_toggle_key"><text>Sound Vision: show/hide halos (key)</text></string>
+<string id="ui_mcm_sound_vision_general_toggle_key_desc"><text>Hotkey that shows or hides all sound rings right in the game - the same switch as the "Enable mod" checkbox, no menus needed. Default: MINUS (the "-" key to the right of 0). To rebind, click the field in the MCM and press any key. The toggle lasts until the game is restarted or the "Enable mod" checkbox is changed in the MCM - a new session starts from that checkbox.</text></string>
 <string id="ui_mcm_sound_vision_general_show_own"><text>Show my own sounds</text></string>
 <string id="ui_mcm_sound_vision_general_show_own_desc"><text>Show rings for the player's own footsteps and gunshots. Off by default - you always feel your own sounds.</text></string>
 <string id="ui_mcm_sound_vision_general_max_dist"><text>Detection range (m)</text></string>
