@@ -51,6 +51,26 @@
 -- выталкивается самое старое НЕ-weapon событие (шаги/физика/гул зон),
 -- а не красная метка (см. sound_vision_events).
 --
+-- Взрывы - крупными кольцами (v2.9). Гранаты, подствольные снаряды, бочки
+-- и мины - отдельная категория "explosion" (огненно-оранжевая, порог
+-- громкости на неё не действует, свой потолок 200 м, защита от вытеснения).
+-- Три канала:
+--   1) слух: движок играет snd_explode с маской WEAPON_SHOOTING
+--      (src/xrGame/Explosive.cpp:59, m_eSoundExplode), поэтому взрыв приходит
+--      строкой "WPN_shoot", неотличимой от выстрела. Отличие - источник:
+--      неживой объект-не-зона (граната, снаряд, бочка, ракета); громкость
+--      остаётся честной (перенос замера ИИ-слушателя) - громкий взрыв бочки
+--      виден и крупнее;
+--   2) опрос полёта гранат (sound_vision_detect): исчезновение летящего
+--      снаряда = взрыв, работает без ИИ-слушателей на любой сборке;
+--   3) колбэк explosive_item_on_explode (только modded exes): бочки, мины,
+--      взрывчатка; в ванильном Anomaly 1.5.x его нет - safe_register
+--      пропускает регистрацию с честной строкой INIT.
+-- Ключ источника у всех каналов - ЧИСЛОВОЙ id объекта-взрыва: копии
+-- склеиваются антиспамом очереди, дублей нет. При cfg.expl_boost (MCM
+-- «Крупные ореолы взрывов», включено) кольцо взрыва не уменьшается с
+-- расстоянием, а громкость добавляет размер (до 2х).
+--
 -- Маркер атаки - ВСЕГДА (v2.7). Канал слуха молчит чаще, чем ожидалось:
 -- у части паков оружия выстрел без валидного ogg-комментария получает
 -- game_type = 0 и ИИ его не рассылает вовсе, а если рядом со стрелком нет
@@ -180,6 +200,7 @@ local ANV_PHYS_DROP = { 8, 0.15 }   -- выброшенный предмет: д
 local ANV_SHOT     = { 45, 0.60 }  -- выстрел без глушителя
 local ANV_SHOT_SIL = { 20, 0.30 }  -- выстрел с глушителем
 local ANV_RELOAD   = { 12, 0.22 }  -- перезарядка
+local ANV_EXPL     = { 25, 0.80 }  -- взрыв бочки/мины (колбэк): до ~100 м
 local WPN_ANV_EMPTY = { 8, 0.15 }  -- сухой щелчок: вблизи
 local WPN_ANV_DRAW  = { 8, 0.12 }  -- достал/убрал оружие
 
@@ -311,6 +332,26 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                         end
                 end
         end
+        -- Взрыв или выстрел? (v2.9). Взрыв приходит "WPN_shoot" (маска
+        -- WEAPON_SHOOTING у snd_explode, Explosive.cpp:59) - отличить можно
+        -- только по источнику: у выстрела он живой (сталкер), у взрыва -
+        -- неживой объект (граната, подствольный снаряд, бочка, мина, ракета).
+        -- Оружейные объекты (турели) и зоны взрывом не считаются: IsWeapon
+        -- отсеивает стволы, секция "zone_" - thermal-разряд аномалии.
+        local src_explosive = false
+        if kind == "weapon" and src then
+                local ok_zh, zh = pcall(IsStalker, src)
+                local ok_zm, zm = pcall(IsMonster, src)
+                local ok_w, wp = pcall(IsWeapon, src)
+                local ok_s, sec_e = pcall(src.section, src)
+                if not (ok_zh and zh) and not (ok_zm and zm)
+                        and not is_vehicle_obj(src)
+                        and not (ok_w and wp)
+                        and not (ok_s and type(sec_e) == "string"
+                                and string.find(sec_e, "zone_", 1, true) == 1) then
+                        src_explosive = true
+                end
+        end
         -- Якорь WPN_*: СТРЕЛКОВ или ТОЧКУ ПОПАДАНИЯ (v2.3+v2.5+v2.6).
         -- Для WPN_* движок отдаёт pos = позиция ПУЛИ (см. блок сигнатуры выше):
         -- кольца вспыхивали у ног игрока (пуля рядом) или отклонялись гейтом
@@ -338,9 +379,10 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
         --     вертолёта: стрелок за 300+ м якорь не проходит (0.004 < 0.02),
         --     а его пули крошат землю в 7-25 м от игрока (p до 0.76);
         --   не слышно ни того, ни другого -> кольцо на стрелке, гейт решит
-        --     (как в v2.4). Гранаты/взрывы (строки без префикса WPN_) не
-        --     трогаем - там точка взрыва полезнее, а сдвиг < 2 м - перекладки
-        --     нет, замер громкости движка остаётся честным.
+        --     (как в v2.4). Взрыв (v2.9) идёт своей веткой: точка движка -
+        --     эпицентр (звук привязан к гранате/бочке, пуль нет), громкость -
+        --     честный перенос замера слушателя: бочка громче гранаты видна
+        --     и по размеру кольца.
         local anch = pos          -- куда ставим кольцо
         local anch_from = nil     -- дистанция до точки движка (для строки журнала)
         local anch_anv, anch_anv_name = nil, nil
@@ -361,7 +403,13 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                 local d_en = math.sqrt(px * px + py * py + pz * pz)
                 local ok2, ep
                 if src then ok2, ep = pcall(src.position, src) end
-                if is_shot then
+                if is_shot and src_explosive then
+                        -- v2.9: ВЗРЫВ, а не выстрел: кольцо в точке движка
+                        -- (эпицентр), якорь выстрела НЕ применяется - громкость
+                        -- восстанавливается честно из замера ИИ-слушателя
+                        anch = pos
+                        anch_from = d_en
+                elseif is_shot then
                         -- v2.6: выстрел якорится к стволу всегда (см. блок выше)
                         local anv, anv_name = wpn_anchor(s_type, src)
                         if ok2 and ep and ep.x then
@@ -424,12 +472,21 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
         -- чтобы кольцо жило в одном экземпляре с её пульсами гула.
         local push_who = who_id
         if kind == "weapon" and src then
-                local ok_zh, zh = pcall(IsStalker, src)
-                local ok_zm, zm = pcall(IsMonster, src)
-                if not (ok_zh and zh) and not (ok_zm and zm)
-                        and not is_vehicle_obj(src) then
-                        kind = "anomaly"
-                        push_who = "anm" .. tostring(who_id)
+                if src_explosive then
+                        -- v2.9: взрыв - не зона и не стрелок: своя категория
+                        -- (огненно-оранжевая). Ключ - числовой id объекта:
+                        -- опрос гранат и колбэк бочки дают тот же ключ, копии
+                        -- каналов склеиваются антиспамом очереди.
+                        kind = "explosion"
+                        push_who = who_id
+                else
+                        local ok_zh, zh = pcall(IsStalker, src)
+                        local ok_zm, zm = pcall(IsMonster, src)
+                        if not (ok_zh and zh) and not (ok_zm and zm)
+                                and not is_vehicle_obj(src) then
+                                kind = "anomaly"
+                                push_who = "anm" .. tostring(who_id)
+                        end
                 end
         end
         -- Восстановление громкости у игрока из якоря ИИ-наблюдения:
@@ -463,6 +520,9 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                         extra = string.format(
                                 " (incoming fire: shooter %.0fm below threshold -> impact ring, im=%.3f)",
                                 anch_sh_d or 0, anch_im)
+                elseif kind == "explosion" then
+                        extra = string.format(" (explosion: epicenter %.0fm)",
+                                anch_from or 0)
                 elseif anch_from then
                         extra = string.format(" (anchored: pos %.0fm -> shooter %s, anv=%s)",
                                 anch_from,
@@ -549,6 +609,37 @@ local function on_npc_reload_start(npc, weapon)
                         d and string.format("%.1fm", d) or "?")
         end
         sound_vision_events.push_event(p.x, p.y, p.z, "weapon", "rl" .. npc:id(), nil, loud, true)
+end
+
+-- ---------------------------------------------------------------------------
+-- Бонусный канал взрывчатки (v2.9): колбэк modded exes
+-- explosive_item_on_explode - бочки, мины, динамит и прочие
+-- CExplosiveItem. Ручные гранаты - CGrenade, этим колбэком НЕ ловятся:
+-- их берут слух (ветка src_explosive выше) и опрос полёта гранат
+-- (sound_vision_detect). В ванильном Anomaly 1.5.x колбэка нет
+-- (проверено по anomalymod/xray-monolith) - safe_register молча
+-- пропустит регистрацию, INIT честно напишет "NOT available".
+-- Громкость - от якоря ANV_EXPL: честного замера у колбэка нет; ключ
+-- источника - ЧИСЛОВОЙ id объекта: слуховой канал взрыва даёт тот же
+-- ключ, копии склеиваются антиспамом очереди (force не ставим - тот же
+-- механизм склейки, что и у опроса гранат).
+-- ---------------------------------------------------------------------------
+local function on_explosive_explode(obj)
+        if not obj then return end
+        local ok, p = pcall(obj.position, obj)
+        if not (ok and p and p.x) then return end
+        local ok_id, oid = pcall(obj.id, obj)
+        local d = dist_to_actor(obj)
+        local loud = anchor_loud(ANV_EXPL, d)
+        local L = _G.sound_vision_log
+        if L and L.on() then
+                L.dbg("BOOM", "explosive item: id=%s loud=%s d=%s",
+                        ok_id and tostring(oid) or "?",
+                        string.format("%.3f", loud),
+                        d and string.format("%.1fm", d) or "?")
+        end
+        sound_vision_events.push_event(p.x, p.y, p.z, "explosion",
+                ok_id and oid or nil, nil, loud, true)
 end
 
 -- Источник 2: колбэки аномалий (ванильные, см. callbacks-reference).
@@ -878,6 +969,7 @@ function on_game_start()
         safe_register("npc_on_hear_callback", on_npc_hear)
         safe_register("npc_on_weapon_shot_start", on_npc_shot_start)     -- бонус экзешников
         safe_register("npc_on_weapon_reload_start", on_npc_reload_start) -- бонус экзешников
+        safe_register("explosive_item_on_explode", on_explosive_explode) -- взрывчатка: бонус экзешников (v2.9)
         safe_register("actor_on_hit_callback", on_actor_hit)
         safe_register("anomaly_on_before_activate", on_anomaly_activate)
         safe_register("actor_on_feeling_anomaly", on_actor_feel_anomaly)
@@ -894,10 +986,11 @@ function on_game_start()
         local L = _G.sound_vision_log
         if L and L.on() then
                 local mc = sound_vision_config.mc
-                L.dbg("INIT", "started: enabled=%s by_loudness=%s max_dist=%dm npc_shots=%s (ammo-poll %dms/%dm + actor hit) show_own=%s vignette=%s(%.0f%% core %.0f%%/full %.0f%%) occlusion=%s(visible %.0f%% wall %.0f%% soft=%s +%d%% wall_vignette=%s)",
+                L.dbg("INIT", "started: enabled=%s by_loudness=%s max_dist=%dm npc_shots=%s (ammo-poll %dms/%dm + actor hit) expl_boost=%s (grenade poll + explosive callback) show_own=%s vignette=%s(%.0f%% core %.0f%%/full %.0f%%) occlusion=%s(visible %.0f%% wall %.0f%% soft=%s +%d%% wall_vignette=%s)",
                         tostring(mc.enabled), tostring(mc.by_loudness),
                         mc.max_dist, tostring(mc.npc_shots),
-                        WPN_POLL_MS, WPN_POLL_D, tostring(mc.show_own),
+                        WPN_POLL_MS, WPN_POLL_D, tostring(mc.expl_boost),
+                        tostring(mc.show_own),
                         tostring(mc.vign_on), mc.vign_min * 100,
                         mc.vign_core * 100, mc.vign_full * 100,
                         tostring(mc.occ_on), mc.occ_visible * 100,

@@ -28,9 +28,12 @@
 <string id="ui_mcm_sound_vision_size_rings_desc"><text>Сколько расходящихся колец рисуется для одного звука (1-3, в стиле сонара).</text></string>
 <string id="ui_mcm_sound_vision_size_opacity"><text>Яркость (%)</text></string>
 <string id="ui_mcm_sound_vision_size_opacity_desc"><text>Общая непрозрачность колец, процент (20-100).</text></string>
+<!-- Крупные ореолы взрывов (v2.9) -->
+<string id="ui_mcm_sound_vision_size_expl_boost"><text>Крупные ореолы взрывов</text></string>
+<string id="ui_mcm_sound_vision_size_expl_boost_desc"><text>Взрывы гранат, подствольных гранат, бочек и мин рисуются кольцами полного размера: ореол не уменьшается с расстоянием, а громкость взрыва у вас добавляет размер - громкий взрыв бочки или ракеты виден крупнее далёкой гранаты (до 2х). Взрывы показываются всегда: порог слышимости на них не действует. Отключите, чтобы взрывы вели себя как обычные звуки.</text></string>
 <!-- Categories -->
 <string id="ui_mcm_sound_vision_categories_cat_weapon"><text>Выстрелы и оружие</text></string>
-<string id="ui_mcm_sound_vision_categories_cat_weapon_desc"><text>Красные кольца: выстрелы, взрывы, гранаты.</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_weapon_desc"><text>Красные кольца: выстрелы, перезарядка, попадания. Оранжево-красные: взрывы гранат, подствольных гранат и бочек.</text></string>
 <string id="ui_mcm_sound_vision_categories_cat_voice"><text>Голос и речь</text></string>
 <string id="ui_mcm_sound_vision_categories_cat_voice_desc"><text>Белые кольца: разговоры, крики, стоны.</text></string>
 <string id="ui_mcm_sound_vision_categories_cat_step"><text>Шаги и движение</text></string>

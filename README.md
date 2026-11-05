@@ -29,7 +29,8 @@ him. Everything is configurable in the **MCM**.
 |---|---|
 | Someone walks/runs (including behind a wall) | yellow rings at the footstep point — close range only |
 | Someone talks, shouts, groans | white rings |
-| Gunshots, explosions, grenades | red rings — visible from afar, just like they are audible |
+| Gunshots, reloads, bullet hits | red rings — visible from afar, just like they are audible |
+| Grenade, underbarrel and barrel explosions | large orange-red rings (v2.9): full size at any distance; the louder the boom, the larger the ring (up to 2x) |
 | Mutants (steps, growling, attacks) | purple rings |
 | Anomalies: idle hum, activation hiss | turquoise rings |
 | Physics: pushed barrels, hits, falling objects | blue rings |
@@ -128,6 +129,16 @@ Measured on defaults: the peak brightness of a behind-wall halo in the center of
 grew from 6 % to 60 % (**10.6×**) — the center vignette used to dim it to near-invisibility,
 which is exactly what a player noticed.
 
+## Enlarged explosion rings (v2.9)
+
+An explosion is a "where did it boom" event: its ring does **not shrink with distance** —
+every explosion starts at full ring size, and the loudness at your position adds size (a
+loud barrel or rocket blast is larger than a distant grenade, up to 2x). Explosions ignore
+the hearing threshold (like shot markers), have their own 200 m range cap and are protected
+from queue eviction. Governed by the **"Enlarged explosion rings"** MCM checkbox (on by
+default); turning it off returns the ordinary distance-based sizing, while explosions keep
+their color and channels.
+
 ## Loudness-based audibility (v2.0)
 
 The engine already decides whether a sound is audible: every source carries ogg comments
@@ -213,6 +224,21 @@ The mod **does not overwrite a single game file** — it only adds its own. Even
    attack marker at the moment of impact, even if every other channel stayed silent. A shooter
    beyond 250 m — the ring is placed at 250 m in the same direction (the renderer clamps far
    rings to the screen edge anyway).
+
+10. **Explosion channels** (v2.9) — grenades, underbarrel rounds, barrels and mines come as a
+    separate orange-red **explosion** category:
+    - the engine plays every `snd_explode` with the WEAPON_SHOOTING type mask
+      (`Explosive.cpp:59`), so an explosion arrives as `WPN_shoot`; the mod tells it from a
+      shot by the source object (not a stalker, not a zone, not a gun) and keeps the honest
+      engine loudness — a louder barrel is drawn larger;
+    - **grenade flight polling** (every 250 ms): a flying projectile is a live parentless
+      object; when it disappears — it exploded. Works without AI listeners on any build;
+    - **`explosive_item_on_explode`** (modded exes only) — barrels/mines/dynamite; vanilla
+      Anomaly 1.5.x has no such callback, so the mod just skips it (an honest INIT line in
+      the log).
+    All channels share one anti-spam key — the numeric id of the exploding object — so
+    copies merge into a single ring; blue shock-wave rings near a fresh explosion merge
+    into it too.
 
 All callback registrations are wrapped in `pcall` — on any game build (with MCM or without,
 with modded exes or without) an unavailable callback does not break the others.
@@ -460,6 +486,7 @@ did not change, nothing needs manual editing.
 | Minimum size | 12 % | shrink limit for the farthest sounds (5–50 %) |
 | Waves per sound | 2 | 1–3, "sonar" |
 | Brightness | 85 % | overall opacity |
+| Enlarged explosion rings | on | explosion rings keep full size at any distance; loudness adds size (up to 2x). Off = explosions size like ordinary sounds |
 
 ### Center vignette (v2.8)
 | Option | Default | Description |
@@ -480,14 +507,14 @@ did not change, nothing needs manual editing.
 | Dim behind-wall by center vignette | off | if enabled, the center vignette also dims behind-wall sources (v2.8 behavior) |
 
 ### Sound types
-Six category toggles: gunshots/weapons, voice/speech, footsteps/movement, mutants, anomalies,
-physics/other. Each category can be disabled separately.
+Six category toggles: gunshots/weapons (also governs explosions — orange-red, v2.9),
+voice/speech, footsteps/movement, mutants, anomalies, physics/other. Each category can be disabled separately.
 
 ### Detection sources
 | Option | Default | Description |
 |---|---|---|
 | Anomaly hum pause | 4 s | how often each zone pulses while idle (2–10 s) |
-| Track moving objects | on | pushed barrels, sliding boxes, grenades |
+| Track moving objects | on | pushed barrels, sliding boxes (grenades are shown as explosions, v2.9) |
 | Object move threshold | 12 cm | sensitivity: lower = more rings (5–50 cm) |
 | Guaranteed shot channel | on | ammo polling of stalkers within 250 m: the counter dropped — a shot; plus a ring on the attacker when you get hit. Works on any build |
 
@@ -514,9 +541,10 @@ event passes a pipeline, and every layer writes its own line prefixed `[sound_vi
 | `CONFIG` | settings re-read (the "MCM applied" marker) |
 | `HEAR` | hearing channels CAUGHT a sound: type, source `id(section)`, loudness at the listener and the estimate at the player; for `WPN_*` — the suffix `(anchored: pos … -> shooter …)` if the ring was moved from the bullet to the shooter |
 | `SHOT` | the guaranteed channel: `poll: npc=… ammo 30->29` — ammo polling caught a shot; `actor hit: who=…` — the player got hit, marker on the attacker |
-| `DETECT` | world polling saw footsteps/physics/zones (footsteps — at most once per second per character) |
-| `GATE` | the queue **rejected** the event and why: `too far` (beyond the category range cap: weapon 250 m, others 150 m), `below threshold` (loudness at the player below the "Hearing threshold"; weapon is never cut), `no loudness data`, `throttle` (world polling anti-spam; weapon is never cut), `category off`, `mod disabled` |
-| `QUEUE` | the queue **accepted** the event — a ring is placed (id assigned); `evicted oldest … weapon protected` — on overflow the oldest background event was pushed out, the red marker survived (v2.7) |
+| `DETECT` | world polling saw footsteps/physics/zones (footsteps — at most once per second per character); `grenade gone (boom)` — a flying projectile disappeared, explosion ring at its last position (v2.9) |
+| `BOOM` | `explosive_item_on_explode` callback (modded exes): a barrel/mine exploded — ring at its position (v2.9) |
+| `GATE` | the queue **rejected** the event and why: `too far` (beyond the category range cap: weapon 250 m, others 150 m), `below threshold` (loudness at the player below the "Hearing threshold"; weapon is never cut), `no loudness data`, `throttle` (world polling anti-spam; weapon is never cut), `merged into explosion` (a shock-wave ring near a fresh explosion, v2.9), `category off`, `mod disabled` |
+| `QUEUE` | the queue **accepted** the event — a ring is placed (id assigned); `evicted oldest … weapon protected` — on overflow the oldest background event was pushed out, the red marker survived (v2.7); `absorbed by explosion` — a wave ring merged into a fresh explosion (v2.9) |
 | `OCC` | occlusion (v2.8): `ray_pick` availability on this build (one line at the first ray); ACCEPTED state changes — `visible (clear LOS)` / `occluded (wall)` with distance and confirmation time; `flap suppressed` — corner/fence flicker suppressed; feature disabled on a broken binding |
 | `RENDER` | `shown` — the indicator is on screen (+ `occ=seen/wall/?` — the occlusion state); `FAILED` — the event died without ever being projected; `HUD hidden` — a menu on top |
 | `TYPES` | sound type log (its own checkbox, independent of the master switch) |

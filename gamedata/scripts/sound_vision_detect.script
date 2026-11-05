@@ -3,11 +3,14 @@
 --
 -- Ответственность (SRP): один проход по db.storage раз в MOVE_POLL_MS:
 --   - движение живых NPC/мутантов -> "шаги" (гарантированно, сквозь стены);
---   - движение трупов/физики (бочки, коробки, гранаты) -> "физика"
---     (толкание, скольжение, падение);
+--   - движение трупов/физики (бочки, коробки) -> "физика"
+--     (толкание, скольжение, падение; гранаты с v2.9 - отдельный канал
+--     взрывов, физические кольца за ними не закреплены);
 --   - аномальные зоны -> периодический "гул" (idle-звук зон играет циклично
 --     с паузами - имитируем его пульсами) + "шипение" при приближении;
---   - болт: пролетел и остановился рядом с зоной -> активация аномалии.
+--   - болт: пролетел и остановился рядом с зоной -> активация аномалии;
+--   - гранаты в полёте (v2.9): летящий снаряд следится до потолка взрывов,
+--     его исчезновение = взрыв (кольцо в точке последнего sighting).
 -- События отправляет через sound_vision_events, сам ничего не рисует.
 --
 -- Громкость опрошенных источников (v2.0). Опрос - единственный источник
@@ -52,6 +55,25 @@ local ANV_PHYS     = { 8, 0.12 }   -- скольжение/толкание бо
 local ANV_ZONE     = { 15, 0.15 }  -- гул аномалии в простое
 local ANV_ZONE_ACT = { 12, 0.30 }  -- шипение активации зоны / вход игрока
 
+-- Взрыв гранаты (v2.9). Опрос - гарантированный канал взрывов: он не
+-- зависит ни от ИИ-слушателей (актёр слух в Lua не отчитывает - чужой
+-- брошенный гранат в пустой локации иначе не видно), ни от ogg-метаданных.
+-- Движковый факт: летящий снаряд - живой объект без родителя (Missile.cpp:
+-- spawn_fake_missile спавнит по cNameSect, GE_OWNERSHIP_REJECT отпускает
+-- его в полёт), при взрыве CGrenade уничтожается - исчезновение из
+-- db.storage и есть момент взрыва. Громкость - от якоря: взрыв гранаты
+-- слышно до ~100 м; громкость у игрока идёт на размер кольца (в очереди).
+-- Бочки/мины/взрывчатку ловит колбэк explosive_item_on_explode
+-- (sound_vision) - опрос следит только за гранатными классами clsid
+-- (все ключи _G.clsid с префиксом wpn_grenade: ручные и подствольные
+-- "фейки"; движок регистрирует G_F1_S/G_RGD5_S/G_FAKE).
+local ANV_EXPL        = { 25, 0.80 }  -- взрыв гранаты: слышно до ~100 м
+local EXPL_TRACK_D2   = 200 * 200     -- потолок слежения = потолок дальности взрывов
+local EXPL_TRACK_D2_SQRT = 200        -- тот же потолок в метрах (для sqrt-сравнения)
+local gren_state = {}   -- [id] = {x,y,z,sec} - летящие гранаты (последняя точка)
+local cls_cache  = {}   -- [id] = clsid|false - кэш классов объектов
+local grenade_clsids = nil  -- [clsid] = true - ленивый набор из _G.clsid
+
 local move_timer    = 0
 local cleanup_timer = 0
 
@@ -88,6 +110,47 @@ local function starts_with(s, sub)
         return string.find(s, sub, 1, true) == 1
 end
 
+-- Набор гранатных clsid (v2.9): все ключи _G.clsid с префиксом "wpn_grenade"
+-- (wpn_grenade_f1_s, wpn_grenade_rgd5_s, wpn_grenade_fake - подствольный).
+-- Строится один раз; добавляет гранаты любых аддонов, зарегистрированные
+-- движком под тем же префиксом.
+local function gren_clsids()
+        if grenade_clsids then return grenade_clsids end
+        grenade_clsids = {}
+        local ct = _G.clsid
+        if type(ct) == "table" then
+                for name, v in pairs(ct) do
+                        if type(name) == "string" and starts_with(name, "wpn_grenade") then
+                                grenade_clsids[v] = true
+                        end
+                end
+        end
+        return grenade_clsids
+end
+
+-- Кэш clsid объекта: метод щупается один раз за жизнь объекта (false -
+-- недоступен на этой сборке). clsid - не строка: сравнивать с наборами чисел.
+local function clsid_of(o, id)
+        local c = cls_cache[id]
+        if c == nil then
+                local ok, v = pcall(o.clsid, o)
+                c = ok and v or false
+                cls_cache[id] = c
+        end
+        return c
+end
+
+-- Дымовые/газовые гранаты без взрывного урона (hit_type_blast ~= "explosion",
+-- как у m_gsmoke: strike) кольца взрыва не дают. Отсутствие строки - не
+-- приговор: секция без hit_type_blast считается взрывчаткой (по умолчанию
+-- показываем - ореол от редкого события лучше пропущенного взрыва).
+local function explodes_on_death(sec)
+        local ini = _G.ini_sys
+        if not (ini and sec) then return true end
+        local ok, v = pcall(ini.r_string, ini, sec, "hit_type_blast")
+        return (not ok) or v == "explosion"
+end
+
 local function excluded_section(s)
         -- оружие/патроны в руках NPC дублировали бы кольца самого NPC;
         -- артефакты левитируют в зонах и шумели бы постоянно
@@ -111,6 +174,30 @@ local function process_object(o, id, ap, maxd2, now)
         local pos = o:position()
         local ddx, ddz = pos.x - ap.x, pos.z - ap.z
         local dd2 = ddx * ddx + ddz * ddz
+
+        -- 0) гранаты в полёте (v2.9): следим до потолка взрывов (дальше радиуса
+        -- опроса мира - подствольный снаряд летит за 100 м, и слух там часто
+        -- молчит). Родитель есть - снаряд в чьих-то руках/в стволе: не полёт.
+        if gren_clsids()[clsid_of(o, id)] then
+                local ok_par, par = pcall(o.parent, o)
+                if ok_par and par then
+                        gren_state[id] = nil
+                        return
+                end
+                local gp = gren_state[id]
+                if gp then
+                        gp.x, gp.y, gp.z = pos.x, pos.y, pos.z
+                else
+                        local ok_s, s = pcall(o.section, o)
+                        gren_state[id] = { x = pos.x, y = pos.y, z = pos.z,
+                                sec = ok_s and s or nil }
+                end
+                if dd2 >= EXPL_TRACK_D2 then
+                        gren_state[id] = nil   -- дальше потолка взрывов кольцо всё равно не рисуется
+                end
+                return
+        end
+
         if dd2 >= maxd2 then
                 if zone_pos[id] then zone_pos[id] = nil end
                 if zone_state[id] then zone_state[id] = nil end
@@ -307,6 +394,49 @@ local function cleanup_stale()
         for id in pairs(bolt_state) do
                 if not db.storage[id] then bolt_state[id] = nil end
         end
+        for id in pairs(cls_cache) do
+                if not db.storage[id] then cls_cache[id] = nil end
+        end
+        -- исчезнувшая граната оформится взрывом в poll_grenades на следующем
+        -- такте опроса; здесь только страховка чистки кэша классов
+        for id in pairs(gren_state) do
+                if not db.storage[id] then cls_cache[id] = nil end
+        end
+end
+
+-- Взрывы гранат (v2.9): следим за исчезновением летящих снарядов. Снаряд
+-- из db.storage пропадает при взрыве (CGrenade уничтожается); подбор и
+-- возвращение в чей-то инвентарь объект НЕ уничтожают (меняется родитель -
+-- process_object снимет слежение), поэтому ложных взрывов нет. Громкость -
+-- от якоря ANV_EXPL: честного замера у опроса нет.
+local function poll_grenades()
+        if next(gren_state) == nil then return end
+        local a = db.actor
+        if not a then return end
+        local ap = a:position()
+        local L = _G.sound_vision_log
+        local dbg, rate = nil, nil
+        if L and L.on() then dbg, rate = L.dbg, L.rate end
+        for gid, gp in pairs(gren_state) do
+                if not db.storage[gid] then
+                        gren_state[gid] = nil
+                        local dx, dy, dz = gp.x - ap.x, gp.y - ap.y, gp.z - ap.z
+                        local d = math.sqrt(dx * dx + dy * dy + dz * dz)
+                        if d <= EXPL_TRACK_D2_SQRT and explodes_on_death(gp.sec) then
+                                local loud = anchor_loud(ANV_EXPL, d)
+                                if dbg and rate("gren_" .. tostring(gid), 1000) then
+                                        dbg("DETECT", "grenade gone (boom): %s loud=%.3f d=%.1fm",
+                                                tostring(gp.sec), loud, d)
+                                end
+                                -- who - ЧИСЛОВОЙ id гранаты: слуховой канал даёт тот
+                                -- же ключ, копии каналов склеиваются в очереди.
+                                -- force НЕ ставим: ключ общий, антиспам и есть
+                                -- механизм склейки копий (слух приходит первым -
+                                -- опросная копия оттроттлится, и наоборот)
+                                push_event(gp.x, gp.y, gp.z, "explosion", gid, nil, loud, true)
+                        end
+                end
+        end
 end
 
 -- Кадр игрока: опрос мира и чистка каждый по своему таймеру.
@@ -316,6 +446,7 @@ local function update(now)
         if now - move_timer >= MOVE_POLL_MS then
                 move_timer = now
                 poll_world()
+                poll_grenades()   -- исчезновение летящих гранат = взрыв (v2.9)
         end
         if now - cleanup_timer >= CLEANUP_MS then
                 cleanup_timer = now
@@ -330,6 +461,8 @@ local function clear()
         for k in pairs(zone_state) do zone_state[k] = nil end
         for k in pairs(zone_pos) do zone_pos[k] = nil end
         for k in pairs(bolt_state) do bolt_state[k] = nil end
+        for k in pairs(gren_state) do gren_state[k] = nil end
+        for k in pairs(cls_cache) do cls_cache[k] = nil end
         move_timer = 0
         cleanup_timer = 0
 end

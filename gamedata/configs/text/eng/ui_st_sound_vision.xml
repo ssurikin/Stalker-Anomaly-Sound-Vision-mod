@@ -28,9 +28,12 @@
 <string id="ui_mcm_sound_vision_size_rings_desc"><text>How many expanding rings are drawn for one sound (1-3, sonar style).</text></string>
 <string id="ui_mcm_sound_vision_size_opacity"><text>Brightness (%)</text></string>
 <string id="ui_mcm_sound_vision_size_opacity_desc"><text>Overall opacity of the rings, percent (20-100).</text></string>
+<!-- Enlarged explosion rings (v2.9) -->
+<string id="ui_mcm_sound_vision_size_expl_boost"><text>Enlarged explosion rings</text></string>
+<string id="ui_mcm_sound_vision_size_expl_boost_desc"><text>Grenade, underbarrel grenade, barrel and mine explosions are drawn at full ring size: the ring does not shrink with distance, and the explosion loudness at your position adds size - a loud barrel or rocket blast appears larger than a distant grenade (up to 2x). Explosions are always shown: the hearing threshold does not apply to them. Disable to make explosions behave like ordinary sounds.</text></string>
 <!-- Categories -->
 <string id="ui_mcm_sound_vision_categories_cat_weapon"><text>Gunshots and weapons</text></string>
-<string id="ui_mcm_sound_vision_categories_cat_weapon_desc"><text>Red rings: shots, explosions, grenades.</text></string>
+<string id="ui_mcm_sound_vision_categories_cat_weapon_desc"><text>Red rings: shots, reloads, bullet hits. Orange-red: explosions of grenades, underbarrel grenades and barrels.</text></string>
 <string id="ui_mcm_sound_vision_categories_cat_voice"><text>Voice and speech</text></string>
 <string id="ui_mcm_sound_vision_categories_cat_voice_desc"><text>White rings: talking, shouts, screams, pain cries.</text></string>
 <string id="ui_mcm_sound_vision_categories_cat_step"><text>Footsteps and movement</text></string>

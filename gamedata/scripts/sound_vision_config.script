@@ -48,6 +48,8 @@ local mc = {
         phys_sens   = 0.12,   -- порог смещения "объект движется", м
         npc_shots   = true,   -- гарантированный канал выстрелов: опрос боезапаса
                               -- + кольцо при попадании в игрока
+        expl_boost  = true,   -- взрывы крупными кольцами (v2.9): не уменьшаются
+                              -- с расстоянием, громкость добавляет размер
         vign_on     = true,   -- виньетка: гасить индикацию в центре экрана (v2.8)
         vign_min    = 0.10,   -- остаточная яркость в самом центре (доля текущей)
         vign_core   = 0.50,   -- радиус ядра виньетки (доля пути центр->край)
@@ -94,6 +96,10 @@ local function refresh_config()
         mc.phys_enable = sound_vision_mcm.get_config("phys_enable") ~= false
         mc.phys_sens   = math.max(0.02, (tonumber(sound_vision_mcm.get_config("phys_sens")) or 12) / 100)
         mc.npc_shots   = sound_vision_mcm.get_config("npc_shots") ~= false
+        -- Взрывы (v2.9): по умолчанию кольцо взрыва полное и крупное.
+        -- Выключение возвращает взрывам обычное поведение (уменьшение с
+        -- расстоянием); сами взрывы показываются в любом случае.
+        mc.expl_boost  = sound_vision_mcm.get_config("expl_boost") ~= false
         -- Виньетка центра и учёт перекрытия (v2.8): в MCM значения хранятся
         -- в процентах, здесь - в долях. Границы виньетки согласованы: ядро
         -- не дальше полной яркости.
@@ -125,9 +131,10 @@ local function refresh_config()
         -- маркер "настройки применились" в потоке отладочных строк.
         local L = _G.sound_vision_log
         if L and L.on() then
-                L.dbg("CONFIG", "refresh: enabled=%s by_loudness=%s loud_th=%.3f anchor=%.3f max_dist=%dm npc_shots=%s show_own=%s vignette=%s min=%.2f core=%.2f full=%.2f occlusion=%s visible=%.2f wall=%.2f soft=%s boost=%.2f wall_vignette=%s debug=%s",
+                L.dbg("CONFIG", "refresh: enabled=%s by_loudness=%s loud_th=%.3f anchor=%.3f max_dist=%dm npc_shots=%s expl_boost=%s show_own=%s vignette=%s min=%.2f core=%.2f full=%.2f occlusion=%s visible=%.2f wall=%.2f soft=%s boost=%.2f wall_vignette=%s debug=%s",
                         tostring(mc.enabled), tostring(mc.by_loudness), mc.loud_th,
-                        mc.anchor_th, mc.max_dist, tostring(mc.npc_shots), tostring(mc.show_own),
+                        mc.anchor_th, mc.max_dist, tostring(mc.npc_shots), tostring(mc.expl_boost),
+                        tostring(mc.show_own),
                         tostring(mc.vign_on), mc.vign_min, mc.vign_core, mc.vign_full,
                         tostring(mc.occ_on), mc.occ_visible, mc.occ_wall, tostring(mc.occ_soft),
                         mc.occ_boost, tostring(mc.occ_vign), tostring(mc.debug_logs))

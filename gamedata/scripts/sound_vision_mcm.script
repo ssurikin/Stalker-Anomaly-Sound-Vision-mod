@@ -40,6 +40,8 @@ local defaults = {
         phys_sens   = 12,      -- порог смещения "объект движется", см
         npc_shots   = true,    -- гарантированный канал выстрелов: опрос боезапаса
                                -- + кольцо при попадании в игрока
+        expl_boost  = true,    -- взрывы крупными кольцами (v2.9): не уменьшаются
+                               -- с расстоянием, громкость добавляет размер
         vign_on     = true,    -- виньетка: гасить индикацию в центре экрана (v2.8)
         vign_min    = 10,      -- остаточная яркость в самом центре, % (0.10)
         vign_core   = 50,      -- радиус ядра виньетки, % пути центр->край (0.50)
@@ -82,6 +84,7 @@ local opt_group = {
         phys_enable = "detect",
         phys_sens   = "detect",
         npc_shots   = "detect",
+        expl_boost  = "size",
         vign_on     = "vignette",
         vign_min    = "vignette",
         vign_core   = "vignette",
@@ -154,6 +157,9 @@ function on_mcm_load()
                                         def = defaults.rings, min = 1, max = 3, step = 1 },
                                 { id = "opacity",  type = "track", val = 2,
                                         def = defaults.opacity, min = 20, max = 100, step = 5 },
+                                -- v2.9: взрывы крупными кольцами (включено - это и
+                                -- есть запрос доступности: взрыв должен быть виден)
+                                { id = "expl_boost", type = "check", val = 1, def = defaults.expl_boost },
                         } },
                         { id = "categories", sh = true, text = "ui_mcm_sound_vision_section_categories", gr = {
                                 { id = "title_categories", type = "title", text = "ui_mcm_sound_vision_section_categories" },
