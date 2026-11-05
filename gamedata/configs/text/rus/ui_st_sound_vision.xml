@@ -66,13 +66,17 @@
 <!-- Стены и видимость (v2.8) -->
 <string id="ui_mcm_sound_vision_section_occlusion"><text>Стены и видимость</text></string>
 <string id="ui_mcm_sound_vision_occlusion_occ_on"><text>Учёт перекрытия стенами</text></string>
-<string id="ui_mcm_sound_vision_occlusion_occ_on_desc"><text>Мод проверяет линию видимости до каждого источника звука (луч уровня - экономно и с кэшем). Видимый напрямую источник становится полупрозрачным и не закрывает противника; источник за стеной рисуется мутным размытым ореолом на полной яркости. Закрытые двери луч не видит - такие источники показываются как видимые.</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_on_desc"><text>Мод проверяет линию видимости до каждого источника звука (луч уровня - экономно и с кэшем). Видимый напрямую источник становится полупрозрачным и не закрывает противника; источник за стеной рисуется размытым ореолом яркости «Яркость источников за стеной» - для слабослышащего это ключевая информация: обычный человек слышит врага за стеной, а глухой должен его видеть. Закрытые двери луч не видит - такие источники показываются как видимые.</text></string>
 <string id="ui_mcm_sound_vision_occlusion_occ_visible"><text>Яркость видимых источников (%)</text></string>
-<string id="ui_mcm_sound_vision_occlusion_occ_visible_desc"><text>Яркость колец источников, которых видно напрямую (между вами нет стены). 40 = прозрачность 60% - подсказка, а не занавес. Источники за стенами сохраняют полную яркость.</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_visible_desc"><text>Яркость колец источников, которых видно напрямую (между вами нет стены). 40 = прозрачность 60% - подсказка, а не занавес. Источники за стенами настраиваются отдельно - «Яркость источников за стеной».</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_wall"><text>Яркость источников за стеной (%)</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_wall_desc"><text>Яркость колец источников, скрытых стеной. Ключевая настройка для слабослышащих: врага за стеной слышат все, кроме вас, - значит, вы должны его видеть. По умолчанию 70 - заметно ярче видимых источников (40). 100 = как обычное кольцо на открытом месте.</text></string>
 <string id="ui_mcm_sound_vision_occlusion_occ_soft"><text>Размытые ореолы за стенами</text></string>
-<string id="ui_mcm_sound_vision_occlusion_occ_soft_desc"><text>Источники за стенами рисуются мягкой размытой текстурой (мутный ореол) - зрительная подсказка, что звук идёт из-за препятствия, а не с открытого места.</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_soft_desc"><text>Источники за стенами рисуются мягкой размытой текстурой (мутный ореол) - зрительная подсказка, что звук идёт из-за препятствия. Размытие яркость не снижает: пик мягкой текстуры выровнен с обычным кольцом (v2.8.1).</text></string>
 <string id="ui_mcm_sound_vision_occlusion_occ_boost"><text>Размер размытого ореола (%)</text></string>
 <string id="ui_mcm_sound_vision_occlusion_occ_boost_desc"><text>Насколько шире размытый ореол источника за стеной, процент от обычного размера кольца (100 = тот же размер).</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_vign"><text>Гасить за стеной виньеткой центра</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_vign_desc"><text>Если включено, виньетка центра экрана гасит и источники за стеной (поведение v2.8). По умолчанию выключено: вы смотрите на стену, за которой враг, - и кольцо должно быть ярким именно там, а не скрываться виньеткой.</text></string>
 <!-- Debug -->
 <string id="ui_mcm_sound_vision_section_debug"><text>Отладка</text></string>
 <string id="ui_mcm_sound_vision_debug_debug_logs"><text>Журнал отладки</text></string>

@@ -66,13 +66,17 @@
 <!-- Walls and visibility (v2.8) -->
 <string id="ui_mcm_sound_vision_section_occlusion"><text>Walls and visibility</text></string>
 <string id="ui_mcm_sound_vision_occlusion_occ_on"><text>Wall awareness</text></string>
-<string id="ui_mcm_sound_vision_occlusion_occ_on_desc"><text>The mod checks line of sight to each sound source (a level raycast, done sparingly and cached). A source you see directly becomes translucent so it does not cover the enemy; a source behind a wall gets a muddy blurred halo at full brightness. Closed doors are not seen by the ray - such sources show as visible.</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_on_desc"><text>The mod checks line of sight to each sound source (a level raycast, done sparingly and cached). A source you see directly becomes translucent so it does not cover the enemy; a source behind a wall gets a blurred halo at the "Behind-wall brightness" - key information for hard-of-hearing players: everyone else hears the enemy behind the wall, you have to SEE him. Closed doors are not seen by the ray - such sources show as visible.</text></string>
 <string id="ui_mcm_sound_vision_occlusion_occ_visible"><text>Visible source brightness (%)</text></string>
-<string id="ui_mcm_sound_vision_occlusion_occ_visible_desc"><text>Brightness of rings for sources you see directly (no wall between you and them). 40 = 60% transparent - a hint, not a cover. Sources behind walls keep full brightness.</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_visible_desc"><text>Brightness of rings for sources you see directly (no wall between you and them). 40 = 60% transparent - a hint, not a cover. Sources behind walls are configured separately - "Behind-wall brightness".</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_wall"><text>Behind-wall brightness (%)</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_wall_desc"><text>Brightness of rings for sources hidden by a wall. The key setting for hard-of-hearing players: everyone else hears the enemy behind the wall - you have to SEE him. Default 70 - noticeably brighter than visible sources (40). 100 = like a normal ring in the open.</text></string>
 <string id="ui_mcm_sound_vision_occlusion_occ_soft"><text>Blurred halos behind walls</text></string>
-<string id="ui_mcm_sound_vision_occlusion_occ_soft_desc"><text>Sources behind walls draw with a soft blurred ring texture (muddy halo) - a visual hint that the sound comes from behind an obstacle, not from open sight.</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_soft_desc"><text>Sources behind walls draw with a soft blurred ring texture (muddy halo) - a visual hint that the sound comes from behind an obstacle. Blurring does not reduce brightness: the soft texture peak matches the normal ring (v2.8.1).</text></string>
 <string id="ui_mcm_sound_vision_occlusion_occ_boost"><text>Blurred halo size (%)</text></string>
 <string id="ui_mcm_sound_vision_occlusion_occ_boost_desc"><text>How much wider the blurred halo of a wall-blocked source is, percent of the normal ring size (100 = same size).</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_vign"><text>Dim behind-wall by center vignette</text></string>
+<string id="ui_mcm_sound_vision_occlusion_occ_vign_desc"><text>If enabled, the center vignette also dims sources behind walls (v2.8 behavior). Off by default: you are staring at the wall with the enemy behind it - the ring must be bright right there, not hidden by the vignette.</text></string>
 <!-- Debug -->
 <string id="ui_mcm_sound_vision_section_debug"><text>Debug</text></string>
 <string id="ui_mcm_sound_vision_debug_debug_logs"><text>Debug log</text></string>

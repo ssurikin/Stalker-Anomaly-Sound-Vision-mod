@@ -51,8 +51,12 @@ local mc = {
         vign_full   = 1.00,   -- радиус полной яркости (доля пути центр->край)
         occ_on      = true,   -- учёт перекрытия: виден напрямую / за стеной (v2.8)
         occ_visible = 0.40,   -- яркость ореола ВИДИМОГО источника (доля)
+        occ_wall    = 0.70,   -- яркость источника ЗА СТЕНОЙ (доля) - ключевая
+                              -- информация для слабослышащих: ярче видимого
         occ_soft    = true,   -- за стеной: размытая текстура ореола
         occ_boost   = 1.30,   -- за стеной: раздувание размытого ореола (доля)
+        occ_vign    = false,  -- гасить источник за стеной виньеткой центра
+                              -- (по умолчанию НЕТ - глухой должен видеть)
         dbg_types   = false,  -- журнал новых типов звуков в лог игры
         debug_logs  = false,  -- отладочный журнал конвейера (MCM: Отладка)
 }
@@ -96,21 +100,30 @@ local function refresh_config()
         mc.occ_on      = sound_vision_mcm.get_config("occ_on") ~= false
         mc.occ_visible = math.max(0.05, math.min(1,
                 (tonumber(sound_vision_mcm.get_config("occ_visible")) or 40) / 100))
+        -- Яркость источника ЗА СТЕНОЙ (v2.8.1): 0-100% по спецификации MCM.
+        -- Это главный канал информации для слабослышащих, поэтому по умолчанию
+        -- ярче видимого источника (70 против 40).
+        mc.occ_wall    = math.max(0, math.min(1,
+                (tonumber(sound_vision_mcm.get_config("occ_wall")) or 70) / 100))
         mc.occ_soft    = sound_vision_mcm.get_config("occ_soft") ~= false
         mc.occ_boost   = math.max(1, math.min(2,
                 (tonumber(sound_vision_mcm.get_config("occ_boost")) or 130) / 100))
+        -- Гасить ли источник за стеной виньеткой центра (v2.8.1). По умолчанию
+        -- НЕТ: слабослышащему источник за стеной нужнее всего, виньетка ему не
+        -- помеха. Включение возвращает поведение v2.8.
+        mc.occ_vign    = sound_vision_mcm.get_config("occ_vign") == true
         mc.dbg_types   = sound_vision_mcm.get_config("dbg_types") == true
         mc.debug_logs  = sound_vision_mcm.get_config("debug_logs") == true
         -- Журнал (MCM: Отладка): настройки перечитаны. Строка полезна как
         -- маркер "настройки применились" в потоке отладочных строк.
         local L = _G.sound_vision_log
         if L and L.on() then
-                L.dbg("CONFIG", "refresh: enabled=%s by_loudness=%s loud_th=%.3f max_dist=%dm npc_shots=%s show_own=%s vignette=%s min=%.2f core=%.2f full=%.2f occlusion=%s visible=%.2f soft=%s boost=%.2f debug=%s",
+                L.dbg("CONFIG", "refresh: enabled=%s by_loudness=%s loud_th=%.3f max_dist=%dm npc_shots=%s show_own=%s vignette=%s min=%.2f core=%.2f full=%.2f occlusion=%s visible=%.2f wall=%.2f soft=%s boost=%.2f wall_vignette=%s debug=%s",
                         tostring(mc.enabled), tostring(mc.by_loudness), mc.loud_th,
                         mc.max_dist, tostring(mc.npc_shots), tostring(mc.show_own),
                         tostring(mc.vign_on), mc.vign_min, mc.vign_core, mc.vign_full,
-                        tostring(mc.occ_on), mc.occ_visible, tostring(mc.occ_soft),
-                        mc.occ_boost, tostring(mc.debug_logs))
+                        tostring(mc.occ_on), mc.occ_visible, mc.occ_wall, tostring(mc.occ_soft),
+                        mc.occ_boost, tostring(mc.occ_vign), tostring(mc.debug_logs))
         end
 end
 

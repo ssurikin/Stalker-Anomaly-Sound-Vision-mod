@@ -894,14 +894,16 @@ function on_game_start()
         local L = _G.sound_vision_log
         if L and L.on() then
                 local mc = sound_vision_config.mc
-                L.dbg("INIT", "started: enabled=%s by_loudness=%s max_dist=%dm npc_shots=%s (ammo-poll %dms/%dm + actor hit) show_own=%s vignette=%s(%.0f%% core %.0f%%/full %.0f%%) occlusion=%s(visible %.0f%% soft=%s +%d%%)",
+                L.dbg("INIT", "started: enabled=%s by_loudness=%s max_dist=%dm npc_shots=%s (ammo-poll %dms/%dm + actor hit) show_own=%s vignette=%s(%.0f%% core %.0f%%/full %.0f%%) occlusion=%s(visible %.0f%% wall %.0f%% soft=%s +%d%% wall_vignette=%s)",
                         tostring(mc.enabled), tostring(mc.by_loudness),
                         mc.max_dist, tostring(mc.npc_shots),
                         WPN_POLL_MS, WPN_POLL_D, tostring(mc.show_own),
                         tostring(mc.vign_on), mc.vign_min * 100,
                         mc.vign_core * 100, mc.vign_full * 100,
                         tostring(mc.occ_on), mc.occ_visible * 100,
-                        tostring(mc.occ_soft), mc.occ_boost * 100)
+                        mc.occ_wall * 100,
+                        tostring(mc.occ_soft), mc.occ_boost * 100,
+                        tostring(mc.occ_vign))
         end
 end
 

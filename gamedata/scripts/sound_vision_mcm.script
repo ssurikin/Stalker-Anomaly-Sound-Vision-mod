@@ -44,8 +44,14 @@ local defaults = {
         vign_full   = 100,     -- радиус полной яркости, % пути центр->край (1.00)
         occ_on      = true,    -- учёт перекрытия: виден напрямую / за стеной (v2.8)
         occ_visible = 40,      -- яркость ореола видимого источника, % (0.40)
+        occ_wall    = 70,      -- яркость источника ЗА СТЕНОЙ, % (0.70) - ключевая
+                               -- информация для слабослышащих: обычный человек
+                               -- слышит врага за стеной, глухой должен видеть
         occ_soft    = true,    -- за стеной: размытая текстура ореола
         occ_boost   = 130,     -- за стеной: раздувание размытого ореола, % (1.30)
+        occ_vign    = false,   -- гасить источник за стеной виньеткой центра
+                               -- (по умолчанию НЕТ: виньетка не должна прятать
+                               -- самое важное для глухого игрока)
         dbg_types   = false,   -- журнал новых типов звуков в лог игры
         debug_logs  = false,   -- отладочный журнал конвейера (HEAR/GATE/QUEUE/RENDER)
 }
@@ -79,8 +85,10 @@ local opt_group = {
         vign_full   = "vignette",
         occ_on      = "occlusion",
         occ_visible = "occlusion",
+        occ_wall    = "occlusion",
         occ_soft    = "occlusion",
         occ_boost   = "occlusion",
+        occ_vign    = "occlusion",
         dbg_types   = "debug",
         debug_logs  = "debug",
 }
@@ -179,9 +187,12 @@ function on_mcm_load()
                                 { id = "occ_on",      type = "check", val = 1, def = defaults.occ_on },
                                 { id = "occ_visible", type = "track", val = 2,
                                         def = defaults.occ_visible, min = 10, max = 90, step = 5 },
+                                { id = "occ_wall",    type = "track", val = 2,
+                                        def = defaults.occ_wall, min = 0, max = 100, step = 5 },
                                 { id = "occ_soft",    type = "check", val = 1, def = defaults.occ_soft },
                                 { id = "occ_boost",   type = "track", val = 2,
                                         def = defaults.occ_boost, min = 100, max = 180, step = 10 },
+                                { id = "occ_vign",    type = "check", val = 1, def = defaults.occ_vign },
                         } },
                         { id = "debug", sh = true, text = "ui_mcm_sound_vision_section_debug", gr = {
                                 { id = "title_debug", type = "title", text = "ui_mcm_sound_vision_section_debug" },
