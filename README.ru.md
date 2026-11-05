@@ -9,6 +9,8 @@ Sound Vision  - accessibility-мод для **S.T.A.L.K.E.R.: Anomaly** (1.5.1 /
 
 [English](README.md) | [Русский](README.ru.md)
 
+*Медиа автора:* [Телеграм](https://t.me/ssurikinn) · [Твич](https://twitch.tv/ssurikin) · [Поддержать автора](https://donationalerts.com/r/ssurikinn)
+
 ---
 
 ## Что вы увидите
@@ -101,5 +103,3 @@ Sound Vision  - accessibility-мод для **S.T.A.L.K.E.R.: Anomaly** (1.5.1 /
 отладочный журнал  - в технической спецификации: **[docs/specs.md](docs/specs.md)**.
 
 ---
-
-*Медиа автора:* [Телеграм](https://t.me/ssurikinn) · [Твич](https://twitch.tv/ssurikin) · [Поддержать автора](https://donationalerts.com/r/ssurikinn)
