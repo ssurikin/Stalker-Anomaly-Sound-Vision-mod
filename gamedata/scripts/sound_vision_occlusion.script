@@ -25,13 +25,25 @@
 --      ключ - сетка 2 м от мировой точки;
 --   2) кэш инвалидируется, если точка звука ушла дальше 2 м от закэширо-
 --      ванной (идущий NPC «mv<id>», летящая граната);
---   3) бюджет RAYS_FRAME лучей на кадр: источники сверх бюджета держат
---      прошлое состояние до следующего кадра, FPS не зависит от числа
---      событий на экране.
+--   3) бюджет RAYS_FRAME лучей на кадр + ОДИН приоритетный луч для источ-
+--      ника без кэша: иначе в бою новое событие рождается на дефолтном
+--      «виден» и потом заметно «доплывает» до правильного ореола;
+--      источники сверх бюджета держат прошлое состояние, FPS не зависит
+--      от числа событий на экране.
 --
--- На сборках без ray_pick (старые экзешники) evaluate возвращает nil -
--- признака перекрытия нет, рендер рисует как в v2.7; в журнале остаётся
--- честная строка OCC (проба выполняется один раз, при первом вызове).
+-- Гистерезис (анти-мерцание). У угла дома, забора или дверного проёма
+-- результат луча меняется от кадра к кадру (камера «дышит», NPC смеща-
+-- ется) - без фильтра ореол пульсирует «виден <-> за стеной», и канони-
+-- ческая волна звука тонет в мерцании. Поэтому сырой результат луча -
+-- только КАНДИДАТ: смена состояния принимается, если кандидат повторился
+-- на перезаписи кэша спустя не меньше HYST_MS. Первое появление источника
+-- принимается сразу (нет прошлого состояния - нечего защищать).
+--
+-- Отказ биндинга - fail-safe: ошибка вызова или мусор вместо числа в
+-- res.range считаются «нет данных» (прежде любой сбой считался «путь
+-- чист» - источник за стеной выглядел видимым и мерцал). После
+-- ANOMALY_DISABLE таких лучей фича отключается с честной строкой OCC:
+-- стабильные кольца v2.7 лучше мусорных состояний.
 --
 -- Зависимости: sound_vision_log (лениво, через _G). Встречных зависимостей
 -- нет: рендер обращается к _G.sound_vision_occlusion из любого места кадра.
@@ -50,6 +62,8 @@
 
 local OCC_TTL_MS = 350    -- время жизни кэша состояния одного источника, мс
 local RAYS_FRAME = 2      -- бюджет лучей на кадр (кадр ~16 мс)
+local HYST_MS    = 300    -- подтверждение смены состояния (анти-мерцание)
+local ANOMALY_DISABLE = 10 -- мусорных ответов луча, после которых фича гасится
 local NEAR_M     = 1.5    -- ближе стольких метров от камеры - виден без луча
 local LOS_EPS_M  = 0.45   -- попадание ближе стольких метров ДО точки - не стена
 local KEY_GRID_M = 2      -- сетка ключа для событий без источника, м
@@ -63,6 +77,8 @@ local res = nil           -- переиспользуемый rq_result (для 
 local frame_bucket = 0    -- мс-окно текущего кадра
 local frame_rays = 0      -- лучи, потраченные в текущем кадре
 local rays_total = 0      -- лучи за сессию (для stats)
+local flaps = 0           -- подавленных скачков состояния (для stats)
+local anomalies = 0       -- мусорных ответов биндинга (для stats)
 
 local tmp_v = vector()    -- переиспользуемый вектор направления луча
 
@@ -102,23 +118,32 @@ local function probe()
         return false
 end
 
--- Луч: true, дистанция попадания - на пути что-то из статической геометрии;
--- false - путь чист. Любая ошибка биндинга трактуется как «путь чист»:
--- сбой луча не должен гасить индикацию.
+-- Луч: true, дистанция попадания - на пути статическая геометрия;
+-- false - путь чист; nil - «нет данных» (ошибка вызова или мусор вместо
+-- числа). Прежде любой сбой считался «путь чист» - источник за стеной
+-- получал состояние «виден» и мерцал при каждом сбое; теперь сбой не
+-- рождает состояния вовсе. Дистанция попадания проверяется на число:
+-- биндинг, возвращающий не то поле, отключает фичу, а не портит состояния.
 local function cast(from, dir, dist)
         if use_class then
                 local ok, rp = pcall(ray_pick, from, dir, dist, tgt, nil)
-                if not (ok and rp) then return false, 0 end
+                if not (ok and rp) then return nil end
                 local ok_q, hit = pcall(rp.query, rp)
-                if ok_q and hit then
+                if not ok_q then return nil end
+                if hit then
                         local ok_d, rng = pcall(rp.get_distance, rp)
-                        return true, (ok_d and rng) or dist
+                        if not (ok_d and type(rng) == "number") then return nil end
+                        return true, rng
                 end
                 return false, 0
         end
         local ok, hit = pcall(level.ray_pick, from, dir, dist, tgt, res, nil)
-        if not ok then return false, 0 end
-        if hit then return true, res.range or dist end
+        if not ok then return nil end
+        if hit then
+                local ok_r, rng = pcall(function() return res.range end)
+                if not (ok_r and type(rng) == "number") then return nil end
+                return true, rng
+        end
         return false, 0
 end
 
@@ -159,13 +184,17 @@ local function evaluate(x, y, z, who)
                         return c.occ
                 end
         end
-        -- Бюджет лучей на кадр: кадр аппроксимируем мс-окном 16 мс.
+        -- Бюджет лучей на кадр: кадр аппроксимируем мс-окном 16 мс. Источнику
+        -- без кэша - ОДИН приоритетный луч сверх бюджета: иначе в бою новое
+        -- событие рождается на дефолтном «виден» и потом плавно «доплывает»
+        -- до ореола - заметный артефакт рождения.
         local bucket = math.floor(now / 16)
         if bucket ~= frame_bucket then
                 frame_bucket = bucket
                 frame_rays = 0
         end
-        if frame_rays >= RAYS_FRAME then
+        local budget = RAYS_FRAME + (c == nil and 1 or 0)
+        if frame_rays >= budget then
                 -- бюджет исчерпан: источники с прошлым состоянием держат его
                 -- до следующего кадра, без состояния - без признака
                 return c and c.occ or nil
@@ -174,25 +203,74 @@ local function evaluate(x, y, z, who)
         local cp = d.cam_pos
         local dx, dy, dz = x - cp.x, y - cp.y, z - cp.z
         local dist = math.sqrt(dx * dx + dy * dy + dz * dz)
-        local occ = false
+        local raw = false
         if dist >= NEAR_M then
                 frame_rays = frame_rays + 1
                 rays_total = rays_total + 1
                 local dir = tmp_v:set(dx / dist, dy / dist, dz / dist)
                 local hit, rng = cast(cp, dir, dist)
+                if hit == nil then
+                        -- биндинг не отвечает/вернул мусор: данных НЕТ - прежнее
+                        -- состояние держим, мусор в кэш не пишем. После
+                        -- ANOMALY_DISABLE таких лучей фича гасится совсем:
+                        -- стабильные кольца v2.7 лучше скачущих состояний.
+                        anomalies = anomalies + 1
+                        local L = _G.sound_vision_log
+                        if anomalies == 1 and L then
+                                L.force("OCC", "ray_pick returned unusable data (wrong binding?): keeping previous states")
+                        end
+                        if anomalies >= ANOMALY_DISABLE then
+                                state = false
+                                for k in pairs(cache) do cache[k] = nil end
+                                if L then
+                                        L.force("OCC", "ray_pick unusable %d times: occlusion feature DISABLED (rings as in v2.7)", anomalies)
+                                end
+                        end
+                        return c and c.occ or nil
+                end
                 -- стена НА ПУТИ: попадание заметно раньше точки источника
-                if hit and (dist - rng) > LOS_EPS_M then occ = true end
+                if hit and (dist - rng) > LOS_EPS_M then raw = true end
         end
-        cache[key] = { occ = occ, t = now, x = x, y = y, z = z }
-        -- Журнал (MCM: Отладка): смена состояния источника - первая оценка
-        -- и каждый переход виден/за стеной. Переходов немного, rate не нужен.
-        local L = _G.sound_vision_log
-        if L and L.on() and (not c or c.occ ~= occ) then
-                L.dbg("OCC", "%s: key=%s d=%.1fm",
-                        occ and "occluded (wall)" or "visible (clear LOS)",
-                        key, dist)
+        -- Гистерезис (анти-мерцание): у угла дома/забора/проёма сырой результат
+        -- меняется от перезаписи к перезаписи. Смена принимается, только если
+        -- кандидат повторно подтвердился спустя >= HYST_MS; до того отдаётся
+        -- прежнее состояние. Первое появление (кэша нет) принимается сразу.
+        local accepted = raw
+        if c then
+                if raw == c.occ then
+                        c.pend, c.pend_t = nil, nil
+                elseif c.pend == raw and c.pend_t and (now - c.pend_t) >= HYST_MS then
+                        local held = now - c.pend_t
+                        c.pend, c.pend_t = nil, nil
+                        -- Журнал (MCM: Отладка): ПРИНЯТАЯ смена состояния -
+                        -- именно она доезжает до рендера (кроссфейд там).
+                        local L = _G.sound_vision_log
+                        if L and L.on() then
+                                L.dbg("OCC", "%s: key=%s d=%.1fm (confirmed after %d ms)",
+                                        accepted and "occluded (wall)" or "visible (clear LOS)",
+                                        key, dist, held)
+                        end
+                else
+                        if c.pend ~= raw then
+                                c.pend, c.pend_t = raw, now
+                                flaps = flaps + 1
+                                local L = _G.sound_vision_log
+                                -- rate(): у «прыгающего» угла подавления идут
+                                -- ~3 раза в секунду - в лог не чаще раза в
+                                -- минуту на источник (счётчик flaps в stats
+                                -- считает всё)
+                                if L and L.on() and L.rate("occ_flap_" .. key, 1000) then
+                                        L.dbg("OCC", "flap suppressed: %s candidate at key=%s (needs %d ms)",
+                                                raw and "occluded (wall)" or "visible (clear LOS)", key, HYST_MS)
+                                end
+                        end
+                        accepted = c.occ
+                end
+                c.occ, c.t, c.x, c.y, c.z = accepted, now, x, y, z
+        else
+                cache[key] = { occ = accepted, t = now, x = x, y = y, z = z }
         end
-        return occ
+        return accepted
 end
 
 -- Сброс кэша: загрузка уровня (load_state), смена карты. Проба и бюджет не
@@ -215,6 +293,9 @@ local function stats()
                 frame_rays = frame_rays,
                 ttl_ms = OCC_TTL_MS,
                 rays_per_frame = RAYS_FRAME,
+                hysteresis_ms = HYST_MS,
+                flaps_suppressed = flaps,
+                cast_anomalies = anomalies,
         }
 end
 
