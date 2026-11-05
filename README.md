@@ -1,5 +1,7 @@
 # Sound Vision — Visual Sound Indicators
 
+![Sound Vision — mod cover](docs/images/sound_vis_mod_cover.png)
+
 Sound Vision is an accessibility mod for **S.T.A.L.K.E.R.: Anomaly** (1.5.1 / 1.5.2 / 1.5.3,
 including GAMMA and other builds). It is built for deaf and hard-of-hearing players: the
 game draws **expanding rings right on the screen** at the point of any sound source — even
@@ -30,6 +32,8 @@ game draws **expanding rings right on the screen** at the point of any sound sou
   (the crosshair zone) rings dim to almost nothing, so they never block your aim.
 - Red shot markers are guaranteed: even a lone shooter with no one around, and the attacker
   when you get hit.
+
+![Zone audio contacts: four demo shots — explosion, patrol footsteps and gunfire, group skirmish, voice behind the wall](docs/images/sound_vis_poster_2x2.png)
 
 ## Installation
 
@@ -75,7 +79,7 @@ Everything is configured in the MCM, and every option has a description on hover
 ## Good to know
 
 - Rings are an **event indicator**: they are drawn where the sound happened and live about
-  a second. A walking character leaves a chain of rings behind them.
+  a second and a half. A walking character leaves a chain of rings behind them.
 - **Speech** is shown when at least one NPC nearby hears it (a second interlocutor, a
   companion, a mutant). A lone stalker muttering to himself in an empty room gives no
   rings — the engine does not broadcast "sound into nowhere". In combat and at bases
@@ -95,3 +99,7 @@ Everything is configured in the MCM, and every option has a description on hover
 Architecture, sound channels, the occlusion and vignette internals, constants, diagnostics
 and the debug log — in the technical specification:
 **[docs/specs.md](docs/specs.md)**.
+
+---
+
+*Author's media:* [Telegram](https://t.me/ssurikinn) · [Twitch](https://twitch.tv/ssurikin) · [Support the author](https://donationalerts.com/r/ssurikinn)
