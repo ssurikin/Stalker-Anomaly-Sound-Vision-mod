@@ -139,6 +139,17 @@ from queue eviction. Governed by the **"Enlarged explosion rings"** MCM checkbox
 default); turning it off returns the ordinary distance-based sizing, while explosions keep
 their color and channels.
 
+## Rings stay while aiming (v2.9.1)
+
+Critical bug fixed: the whole indicator interface disappeared while aiming.
+The cause is vanilla, not the engine and not GAMMA: `axr_main.actor_on_weapon_
+zoom_in` sends `GUI_on_show("UIZoom")` — *"to force hiding HUD UIs on
+Zooming"* — and the mod dimmed its rings on every such event. The zoom signal
+is now ignored (symmetrically on hide, so an open inventory is never overlaid),
+and as a belt-and-suspenders measure the renderer re-asserts its window every
+frame via the engine's idempotent `AddDialogToRender` — any foreign HUD-hiding
+addon restores within one frame.
+
 ## Loudness-based audibility (v2.0)
 
 The engine already decides whether a sound is audible: every source carries ogg comments
