@@ -396,7 +396,7 @@ local function on_npc_hear(npc, who_id, s_type, dist, power, pos)
                                         end
                                 end
                                 local cmod = sound_vision_config
-                                local th = (cmod and cmod.mc and cmod.mc.loud_th) or 0.005 -- внутренний порог v2.7
+                                local th = (cmod and cmod.mc and cmod.mc.anchor_th) or 0.005 -- внутренний порог якоря (v2.8.2)
                                 if loud_sh >= th or not (loud_im and loud_im >= th) then
                                         -- стрелок слышим, либо попадание неслышимо:
                                         -- кольцо на стрелке (v2.4), гейт подтвердит

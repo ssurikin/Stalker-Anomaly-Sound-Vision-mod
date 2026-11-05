@@ -23,9 +23,12 @@ local mc = {
         enabled     = true,   -- мод включён
         show_own    = false,  -- показывать собственные звуки игрока
         by_loudness = true,   -- слышимость по громкости (как в игре), иначе по дистанции
-        loud_th     = 0.005, -- ВНУТРЕННИЙ (v2.7): порог «стрелок слышен» при выборе
-                             -- якоря слуха (стрелок vs точка попадания). Гейта
-                             -- слышимости больше нет, в MCM опции нет
+        loud_th     = 0.010, -- порог слышимости (v2.8.2, MCM «Слышимость»):
+                             -- громкость у игрока, ниже которой кольцо не
+                             -- рисуется; 0 = показывать всё. На weapon-метки
+                             -- (выстрелы/перезарядка/попадание) не действует
+        anchor_th   = 0.005, -- ВНУТРЕННИЙ: порог «стрелок слышен» при выборе
+                             -- якоря слуха (стрелок vs точка попадания)
         max_dist    = 45,     -- радиус опроса мира / лимит в режиме "по дистанции", м
         lifetime    = 1.2,    -- время жизни волны, сек
         throttle    = 0.3,    -- пауза между волнами одного источника, сек
@@ -67,8 +70,12 @@ local function refresh_config()
         mc.enabled     = sound_vision_mcm.get_config("enabled") ~= false
         mc.show_own    = sound_vision_mcm.get_config("show_own") == true
         mc.by_loudness = sound_vision_mcm.get_config("by_loudness") ~= false
-        -- loud_th с v2.7 внутренний (0.005): гейт слышимости удалён, порог
-        -- используется только при выборе якоря слуха в sound_vision.
+        -- Порог слышимости (v2.8.2): в MCM - в тысячных долях (промилле),
+        -- 0 = показывать всё, по умолчанию 10. Внутренний порог якоря
+        -- слуха (anchor_th) от настройки игрока не зависит.
+        mc.loud_th     = math.max(0, math.min(100,
+                tonumber(sound_vision_mcm.get_config("loud_th")) or 10)) / 1000
+        mc.anchor_th   = 0.005
         mc.max_dist    = tonumber(sound_vision_mcm.get_config("max_dist")) or 45
         mc.lifetime    = tonumber(sound_vision_mcm.get_config("lifetime")) or 1.2
         mc.throttle    = tonumber(sound_vision_mcm.get_config("throttle")) or 0.3
@@ -118,9 +125,9 @@ local function refresh_config()
         -- маркер "настройки применились" в потоке отладочных строк.
         local L = _G.sound_vision_log
         if L and L.on() then
-                L.dbg("CONFIG", "refresh: enabled=%s by_loudness=%s loud_th=%.3f max_dist=%dm npc_shots=%s show_own=%s vignette=%s min=%.2f core=%.2f full=%.2f occlusion=%s visible=%.2f wall=%.2f soft=%s boost=%.2f wall_vignette=%s debug=%s",
+                L.dbg("CONFIG", "refresh: enabled=%s by_loudness=%s loud_th=%.3f anchor=%.3f max_dist=%dm npc_shots=%s show_own=%s vignette=%s min=%.2f core=%.2f full=%.2f occlusion=%s visible=%.2f wall=%.2f soft=%s boost=%.2f wall_vignette=%s debug=%s",
                         tostring(mc.enabled), tostring(mc.by_loudness), mc.loud_th,
-                        mc.max_dist, tostring(mc.npc_shots), tostring(mc.show_own),
+                        mc.anchor_th, mc.max_dist, tostring(mc.npc_shots), tostring(mc.show_own),
                         tostring(mc.vign_on), mc.vign_min, mc.vign_core, mc.vign_full,
                         tostring(mc.occ_on), mc.occ_visible, mc.occ_wall, tostring(mc.occ_soft),
                         mc.occ_boost, tostring(mc.occ_vign), tostring(mc.debug_logs))

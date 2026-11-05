@@ -1,621 +1,644 @@
-# Sound Vision — визуальная индикация источников звука
+# Sound Vision — Visual Sound Indicators
 
-Accessibility-мод для **S.T.A.L.K.E.R.: Anomaly** (1.5.1 / 1.5.2 / 1.5.3, включая GAMMA
-и другие сборки).
-Создан для слабослышащих игроков: игра рисует **расходящиеся кольца прямо на экране** в точке
-любого источника звука — в том числе **сквозь стены**. С v2.7 действует контракт доступности:
-**каждый звук, донесённый до мода, показывается всегда** — и всё, что движок разослал по
-каналу слуха ИИ, и **каждый выстрел NPC** (мод сам читает счётчики патронов сталкеров —
-канал не зависит ни от звуковых пакетов, ни от экзешников). С v2.8 индикация **многослойная**
-и не мешает стрелять: в центре экрана кольца гаснут виньеткой (туда вы смотрите глазами),
-видимые напрямую источники полупрозрачны, а источники за стеной — наоборот, самые заметные:
-размытые ореолы ярче видимых, и виньетка центра их не прячет (v2.8.1) — обычный человек
-слышит врага за стеной, а глухой должен его видеть. Всё настраивается в **MCM**.
+An audio accessibility mod for S.T.A.L.K.E.R. that visually indicates the sources of sounds in the game, helping deaf and hard-of-hearing players better understand their surroundings.
+
+[English](README.md) | [Русский](README.ru.md)
 
 ---
 
-## Что вы увидите
+An accessibility mod for **S.T.A.L.K.E.R.: Anomaly** (1.5.1 / 1.5.2 / 1.5.3, including GAMMA
+and other builds).
+Built for deaf and hard-of-hearing players: the game draws **expanding rings right on the
+screen** at the point of any sound source — even **through walls**. Since v2.7 the mod follows
+an accessibility contract: **every sound delivered to the mod is always shown** (the optional
+"Hearing threshold" in the MCM can hide barely audible distant sounds — shot markers are never
+filtered) — both everything the engine broadcast over the AI hearing channel and **every NPC
+shot** (the mod reads stalker ammo counters itself — the channel depends on neither sound
+packs nor game executables). Since v2.8 the indication is **layered** and never interferes
+with shooting: rings dim in the screen center (that's where you look with your own eyes),
+directly visible sources turn translucent, while sources behind a wall are the opposite — the
+most noticeable: blurred halos brighter than visible ones, and the center vignette does not
+hide them (v2.8.1) — a hearing person hears the enemy behind the wall, a deaf player must see
+him. Everything is configurable in the **MCM**.
 
-| Событие | Визуал |
+---
+
+## What you will see
+
+| Event | Visual |
 |---|---|
-| Кто-то идёт/бежит (в т.ч. за стеной) | жёлтые кольца в точке шагов — только вблизи |
-| Кто-то говорит, кричит, стонет | белые кольца |
-| Выстрелы, взрывы, гранаты | красные кольца — видны издалека, как и слышны |
-| Мутанты (шаги, рычание, атаки) | фиолетовые кольца |
-| Аномалии: гул в простое, шипение активации | бирюзовые кольца |
-| Физика: толкание бочек, удары, падения предметов | синие кольца |
+| Someone walks/runs (including behind a wall) | yellow rings at the footstep point — close range only |
+| Someone talks, shouts, groans | white rings |
+| Gunshots, explosions, grenades | red rings — visible from afar, just like they are audible |
+| Mutants (steps, growling, attacks) | purple rings |
+| Anomalies: idle hum, activation hiss | turquoise rings |
+| Physics: pushed barrels, hits, falling objects | blue rings |
 
-- Кольцо **расширяется и гаснет** как волна (1–3 волны на один звук, настраивается).
-- **Слышимость — как в игре**: громкий выстрел в 100 м показывается (вы его слышите),
-  тихий шаг в 60 м — нет (вы его не слышите). Дальние источники — кольца меньше
-  и бледнее (настраивается).
-- Если источник **за краем экрана** или **за спиной** — кольцо плавно доезжает до края
-  экрана **на своей половине** (как квестовые метки в современных играх): звук слева — кольцо
-  у левого края, звук справа — у правого, выше/ниже — к своему краю. Переход плавный в обе
-  стороны: источник уходит из кадра — кольцо доезжает до края; возвращается в кадр — доезжает
-  обратно, без скачков позиции и размера. Отворачиваетесь от источника — кольцо не исчезает
-  и не «зеркалится», а ждёт у края, пока вы развернётесь; источник строго за спиной держит
-  последнюю известную сторону. Размер кольца у края такой же, как в кадре, — он зависит
-  только от дистанции до источника.
-- Цвет кольца задаётся категорией звука; яркость — общая настройка.
+- A ring **expands and fades** like a wave (1–3 waves per sound, configurable).
+- **Audibility as in the game**: a loud shot at 100 m is shown (you hear it), a quiet footstep
+  at 60 m is not (you don't hear it). Distant sources get smaller, paler rings (configurable).
+- If the source is **beyond the screen edge** or **behind your back**, the ring smoothly slides
+  to the screen edge **on its own half** (like quest markers in modern games): a sound on the
+  left — the ring at the left edge, a sound on the right — at the right edge, above/below — at
+  its own edge. The transition is smooth in both directions: the source leaves the frame — the
+  ring rides to the edge; comes back into frame — it rides back, with no position or size
+  jumps. Turn away from the source — the ring neither disappears nor "mirrors", it waits at
+  the edge until you turn back; a source strictly behind your back keeps the last known side.
+  The ring size at the edge is the same as in frame — it depends only on the distance to the
+  source.
+- The ring color is set by the sound category; brightness is a general setting.
 
-## Виньетка центра и стены (v2.8 / v2.8.1)
+## Center vignette and walls (v2.8 / v2.8.1)
 
-Индикация стала многослойной: бой виден глазами, а кольца не перекрывают ни прицел, ни
-противника, ни оружие.
+The indication became layered: combat is seen with your own eyes, and the rings cover neither
+the crosshair, nor enemies, nor your weapon.
 
-**Виньетка центра.** Если вы смотрите прямо на источник — вы и так видите, что происходит:
-стрельбу, противника, его перемещения. Индикация в центре экрана не нужна и только мешает.
-Поэтому яркость колец зависит от угловой удалённости точки отрисовки от центра экрана:
+**Center vignette.** If you look straight at a source, you already see what happens: gunfire,
+enemies, their movement. Indication in the center of the screen is unnecessary and only gets
+in the way. So ring brightness depends on the angular distance of the drawing point from the
+screen center:
 
-- в самом центре (зона прицела) остаётся **10 % от текущей яркости** (настраивается);
-- дальше — плавный рост (smoothstep), у краёв экрана — полная яркость;
-- кольца, пинятые к краю (источник за спиной или вне кадра), не затрагиваются — направление
-  на звук видно как раньше. Отпускание виньетки плавное, по мере доезда кольца к краю
-  (работает даже при «Радиусе полной яркости» больше 100 %);
-- источники **за стеной** виньеткой не гасятся (v2.8.1): для слабослышащего это ключевая
-  информация — обычный человек слышит врага за стеной, а глухой должен его видеть.
-  Отпускание синхронно с кроссфейдом текстур, без скачка. Галочка «Гасить за стеной
-  виньеткой центра» возвращает поведение v2.8.
+- in the very center (the crosshair zone) only **10 % of the current brightness** remains
+  (configurable);
+- farther out it grows smoothly (smoothstep), reaching full brightness at the screen edges;
+- rings pinned to the edge (a source behind you or out of frame) are not affected — the
+  direction of a sound behind your back is visible as before. The vignette releases smoothly
+  as the ring rides to the edge (works even with a "Full brightness radius" above 100 %);
+- sources **behind a wall** are never dimmed by the vignette (v2.8.1): for a hard-of-hearing
+  player this is key information — a hearing person hears the enemy behind the wall, a deaf
+  player must see him. The release is synchronized with the texture crossfade, without a
+  jump. The "Dim behind-wall by center vignette" checkbox restores v2.8 behavior.
 
-**Стены и видимость.** Мод проверяет линию видимости до каждого источника звука лучом уровня
-(`level.ray_pick`, только статическая геометрия) от камеры к точке звука. Правила:
+**Walls and visibility.** The mod checks the line of sight to every sound source with a level
+ray (`level.ray_pick`, static geometry only) from the camera to the sound point. The rules:
 
-| Источник | Вид |
+| Source | Look |
 |---|---|
-| Виден напрямую (стены нет) | полупрозрачный на **60 %** (яркость 40 %) — подсказка, не закрывающая противника |
-| За стеной | **размытый ореол** — мягкая текстура + раздувание размера; яркость **70 %** (настраивается) — заметно ярче видимого |
-| Признака нет (старая сборка без `ray_pick`) | как в v2.7, честная строка в журнале |
+| Visible directly (no wall) | translucent at **60 %** (brightness 40 %) — a hint that does not cover the enemy |
+| Behind a wall | **blurred halo** — soft texture + size boost; brightness **70 %** (configurable) — noticeably brighter than visible |
+| No sign (old build without `ray_pick`) | as in v2.7, an honest line in the log |
 
-Луч — только по статике: NPC и физика не мигают состоянием, сам источник луч не задевает.
-Закрытые двери — динамическая геометрия, луч их не видит: источник за дверью покажется
-«видимым» (для доступности лучше показать лишнее, чем скрыть видимое). Попадание луча
-считается стеной, только если оно заметно раньше точки источника — источник у стены и точка
-попадания пули на стене не становятся «перекрытыми».
+The ray is static-only: NPCs and physics never flicker the state, the source itself is not
+hit by the ray. Closed doors are dynamic geometry — the ray does not see them: a source behind
+a closed door shows as "visible" (for accessibility it is better to show a bit too much than
+to hide the visible). A ray hit counts as a wall only if it is clearly short of the source
+point — a source standing next to a wall and a bullet impact on that wall do not become
+"occluded".
 
-Производительность: состояние кэшируется на источник (350 мс) и инвалидируется, если точка
-звука ушла дальше 2 м (идущий NPC, летящая граната); бюджет — не больше двух лучей за кадр
-(новому событию — один приоритетный луч, чтобы ореол рождался сразу правильным), остальные
-источники держат прошлое состояние, не пульсируя.
+Performance: the state is cached per source (350 ms) and invalidated if the sound point moved
+farther than 2 m (a walking NPC, a flying grenade); the budget is no more than two rays per
+frame (a new event gets one priority ray so its halo is born correct right away), other
+sources keep their previous state without pulsing.
 
-**Анти-мерцание (гистерезис).** У угла дома, забора или дверного проёма результат луча
-меняется от кадра к кадру — без фильтра ореол пульсирует «виден ↔ за стеной», и волна звука
-тонет в мерцании. Поэтому сырой результат луча — только кандидат: смена состояния
-принимается после подтверждения (~0.3 с устойчивого повторения). На углу кольцо остаётся
-стабильным (пульсация 0.86 → 0.00 в замере), а настоящая смена «вышел из-за стены» доезжает
-за ~0.35–0.7 с — одним плавным кроссфейдом. Ошибки луча и мусор вместо дистанции считаются
-«нет данных» (прежнее состояние держится) — прежде сбой считался «путь чист», и источник за
-стеной выглядел полупрозрачным и мерцал; при устойчиво сломанном биндинге фича отключается
-с честной строкой `OCC` в журнале.
+**Anti-flicker (hysteresis).** Near the corner of a house, a fence or a doorway the ray result
+changes from frame to frame — without a filter the halo pulses "visible ↔ behind the wall" and
+the sound wave drowns in flicker. So the raw ray result is only a candidate: a state change is
+accepted after confirmation (~0.3 s of steady repetition). At a corner the ring stays stable
+(pulse 0.86 → 0.00 measured), while a real "came out from behind the wall" change arrives
+within ~0.35–0.7 s — as one smooth crossfade. Ray errors and garbage instead of distance count
+as "no data" (the previous state is kept) — before, a failure counted as "path clear" and a
+source behind a wall looked translucent and flickered; with a persistently broken binding the
+feature disables itself with an honest `OCC` line in the log.
 
-**Плавное переключение текстур (кроссфейд).** Динамичный источник — NPC у угла дома,
-перебегающий проём — может сменить «виден ↔ за стеной» много раз за жизнь кольца. Поэтому
-текстуры не подменяются, а рисуются **одновременно** с комплементарными весами: жёсткая
-гаснет пропорционально тому, как проявляется мягкая (оба веса — одна экспонента, ~0.4–0.6 с
-на полный переход). Текстуры концентричны (мягкая — гауссово размытие жёсткой с пиком,
-нормализованным к жёсткой: размытие меняет ширину ореола, а не яркость — v2.8.1), так что
-переход — непрерывный морф «чёткое кольцо расплывается в мутный ореол» и обратно: без скачка
-яркости, позиции или фазы волны. Замер на реальных текстурах: худший видимый межкадровый
-скачок изображения в ~2.5 раза меньше, чем при подмене текстуры, а сам переход непрерывен.
-Проверено численно: в установившемся режиме рисуется одна текстура (вторая скрыта за
-порогом яркости), при осцилляции источника на углу кольцо «дышит» вместо хлопанья.
+**Smooth texture switching (crossfade).** A dynamic source — an NPC at the corner of a house,
+running through a doorway — can flip "visible ↔ behind the wall" many times during one ring's
+life. So the textures are not swapped, but drawn **simultaneously** with complementary
+weights: the hard one fades out in proportion to the soft one coming in (both weights share
+one exponent, ~0.4–0.6 s for a full transition). The textures are concentric (the soft one is
+a Gaussian blur of the hard one with its peak normalized to the hard one: blurring changes
+the halo width, not its brightness — v2.8.1), so the transition is a continuous morph "the
+crisp ring dissolves into a blurry halo" and back: no jump of brightness, position or wave
+phase. Measured on the real textures: the worst visible inter-frame image jump is ~2.5 times
+smaller than with a texture swap, and the transition itself is continuous. Verified
+numerically: in the steady state only one texture is drawn (the other is hidden below the
+brightness threshold), and a source oscillating at a corner "breathes" instead of popping.
 
-**Яркость за стеной (v2.8.1).** Источник за стеной — ключевая информация для слабослышащего,
-поэтому с v2.8.1 он выводится «как есть по яркости»:
+**Behind-wall brightness (v2.8.1).** A source behind a wall is key information for a
+hard-of-hearing player, so since v2.8.1 it is drawn "as is" in brightness:
 
-- мягкая текстура больше не гасит ореол — пик размытой текстуры нормализован к пику жёсткой;
-- яркость источника за стеной настраивается в MCM («Яркость источников за стеной», 0–100 %,
-  по умолчанию **70 %** — заметно ярче видимых источников, 100 % = как обычное кольцо);
-- виньетка центра источники за стеной **не гасит** (галочка «Гасить за стеной виньеткой
-  центра», по умолчанию выкл, возвращает поведение v2.8).
+- the soft texture no longer dims the halo — the blurred texture's peak is normalized to the
+  hard one's peak;
+- the brightness of a behind-wall source is configurable in the MCM ("Behind-wall brightness",
+  0–100 %, default **70 %** — noticeably brighter than visible sources; 100 % = like a normal
+  ring);
+- the center vignette **does not dim** behind-wall sources (the "Dim behind-wall by center
+  vignette" checkbox, off by default, restores v2.8 behavior).
 
-Замер на дефолтах: пик яркости ореола за стеной в центре экрана вырос с 6 % до 60 % (**в 10.6
-раза**) — раньше виньетка центра гасила его до почти невидимого, что и заметил игрок.
+Measured on defaults: the peak brightness of a behind-wall halo in the center of the screen
+grew from 6 % to 60 % (**10.6×**) — the center vignette used to dim it to near-invisibility,
+which is exactly what a player noticed.
 
-## Слышимость по громкости (v2.0)
+## Loudness-based audibility (v2.0)
 
-Движок уже решает, слышен ли звук: каждый источник имеет ogg-комментарии
-(громкость, дальность слуха ИИ), и при проигрывании звук **ослабляется линейно
-с расстоянием и глушится стенами** (xray-monolith, `IGame_Level::SoundEvent_Register`:
+The engine already decides whether a sound is audible: every source carries ogg comments
+(loudness, AI hearing range), and on playback the sound is **attenuated linearly with distance
+and muffled by walls** (xray-monolith, `IGame_Level::SoundEvent_Register`:
 `Power = (1 − dist/max_ai_distance) · volume · occlusion`).
 
-Мод читает готовый результат через `npc_on_hear_callback`: когда любой NPC или монстр
-**услышал** звук, колбэк отдаёт движковую громкость у его ушей и позицию источника.
-Громкость у **игрока** восстанавливается обратным квадратом от этого «якоря»
-(децибельная модель расхождения звука: −6 дБ на удвоение расстояния):
+The mod reads the finished result via `npc_on_hear_callback`: when any NPC or monster
+**hears** a sound, the callback reports the engine loudness at its ears and the source
+position. The loudness at the **player** is reconstructed with the inverse square from that
+"anchor" (the decibel model of wave divergence: −6 dB per distance doubling):
 
 ```
-громкость_у_игрока = громкость_у_ИИ · (дист_ИИ / дист_игрока)²
+player_loudness = ai_loudness · (ai_dist / player_dist)²
 ```
 
-С v2.7 порога слышимости больше нет **нигде**: звуки канала слуха — движковые
-факты — показываются всегда, и опрос мира тоже показывает всё, что поймал в своём
-радиусе (громкость осталась только на размере и яркости кольца; см. v2.7 ниже).
-Итог — **без калибровки отдельных источников**:
+In v2.7 the loudness threshold was removed entirely: hearing-channel sounds — engine facts —
+were always shown, and world polling also showed everything it caught (loudness remained only
+in ring size and brightness; see v2.7 below). In v2.8.2 the threshold returned as an MCM
+setting (default 10 ppt: the anomaly hum at 48 m — 0.0135 — passes, while barely audible
+distant footsteps can be hidden; 0 — show everything). The result works **without calibrating
+individual sources**:
 
-| Звук | Виден примерно до |
+| Sound | Visible up to about |
 |---|---|
-| Выстрел из автомата | ~246 м (якорь выстрела, v2.6; сам факт выстрела — всегда, v2.7) |
-| Выстрел за толстой стеной | показывается, если движок донёс его до ИИ (occlusion учтён движком; v2.7) |
-| Крик, громкая речь | ~80 м |
-| Шаги бегущего | ~35 м |
-| Шаги идущего | ~29 м |
-| Шаги крадущегося | ~25 м |
-| Физика (толкание бочки) | ~20 м |
+| Assault rifle shot | ~246 m (shot anchor, v2.6; the shot fact itself — always, v2.7) |
+| Shot behind a thick wall | shown if the engine delivered it to AI (occlusion handled by the engine; v2.7) |
+| Scream, loud speech | ~80 m |
+| Running footsteps | ~35 m |
+| Walking footsteps | ~29 m |
+| Sneaking footsteps | ~25 m |
+| Physics (pushing a barrel) | ~20 m |
 
-Дистанция при этом никуда не делась: она управляет **размером** (дальше — меньше)
-и **прозрачностью** (дальше — бледнее) кольца. Старый режим с единым радиусом
-обнаружения доступен в MCM (Слышимость → «Показывать только слышимые звуки» = выкл).
+Distance did not go anywhere: it drives the ring **size** (farther — smaller) and
+**transparency** (farther — paler). The old mode with a single detection radius is available
+in the MCM (Hearing → "Show only audible sounds" = off).
 
-Примечание: громкость у ИИ и у игрока — оценки из одной и той же движковой модели;
-модель может показать звук чуть раньше, чем вы услышите его в наушниках, — для
-accessibility это правильная сторона ошибки.
+Note: loudness at AI and at the player are estimates from the same engine model; the model may
+show a sound slightly before you actually hear it in your headphones — for accessibility that
+is the right side to err on.
 
-## Как мод узнаёт о звуках
+## How the mod learns about sounds
 
-Мод **не перезаписывает ни одного файла игры** — только добавляет свои. Источники событий:
+The mod **does not overwrite a single game file** — it only adds its own. Event sources:
 
-1. **`npc_on_hear_callback`** (ванильный колбэк Anomaly) — «слух» движка: когда любой NPC или
-   монстр **услышал** звук, движок сообщает его тип (выстрел/шаг/голос/физика — строки из
-   ogg-комментариев, напр. `WPN_hit`, `MST_attack`), **громкость у слушателя** и позицию.
-   Это даёт выстрелы, голоса, монстров и физику на большой дальности — с честной громкостью.
-   Нюанс (v2.3): для оружейных типов позиция события — это пуля, поэтому кольцо ставится
-   на стрелке (объекте-источнике `who_id`).
-   Шаги сталкеров движок по слуху не рассылает (они играются «без обратной связи») —
-   их ловит опрос мира.
-2. **`anomaly_on_before_activate`** (ванильный) — аномалия активируется (болт, NPC или мутант
-   попали в зону) → **шипение** в точке зоны.
-3. **`actor_on_feeling_anomaly`** (ванильный) — игрок вошёл в поле аномалии → мгновенные кольца
-   в её центре.
-4. **`physic_object_on_hit_callback`** (ванильный) — удар по физическому объекту: **нож по
-   бочке**, пуля по ящику, кулак по коробке → кольцо в точке удара.
-5. **`actor_on_item_drop`** (ванильный) — выброшенный предмет → стук в точке падения.
-6. **Опрос мира** (каждые 250 мс, только объекты рядом с игроком) — там, где движок ничего
-   не сообщает, громкость оценивается «виртуальным якорем» (4 числа на всё, не калибровка):
-   - движение NPC/мутантов → **шаги**: громкость по **скорости движения** — крадётся тихо,
-     идёт средне, бежит громко;
-   - движение трупов, бочек, коробок, брошенных гранат → **физика** (толкание, скольжение,
-     падение — то же толкание бочки, которое не слышно ИИ);
-   - аномальные зоны (`zone_*`) → периодический **гул в простое** (реальный idle-звук зоны
-     играет циклично с паузами — мод имитирует его пульсами, частота настраивается);
-   - болт: пролетел и остановился рядом с зоной → **активация аномалии**.
-7. **`actor_on_footstep`** (ванильный) — собственные шаги игрока. По умолчанию **выключено**
-   (свои звуки вы ощущаете и так), включается в MCM.
-8. **Опрос боезапаса** (чистый Lua, раз в 200 мс) — **гарантированный канал выстрелов**:
-   у каждого живого сталкера в 250 м читается активное оружие и счётчик патронов —
-   счётчик упал, значит был выстрел (очередь склеит серию в одно живое кольцо стрелка;
-   рост счётчика — перезарядка, кольца нет). Не зависит ни от звуковых метаданных пака,
-   ни от наличия ИИ-слушателей, ни от экзешников. Глушители учитываются: тихий ствол
-   виден с меньшей дистанции (до ~77 м против ~246 м у открытого ствола). Колбэк
-   `npc_on_weapon_shot_start` остаётся бонусом экзешников, где он есть (в ванильном
-   Anomaly 1.5.2 его нет — см. v2.7 ниже).
-9. **`actor_on_hit_callback`** (ванильный) — игрока **задело** → кольцо сразу на том,
-   кто нанёс удар (у выстрела это стрелок, у гранаты — граната): гарантированный
-   маркер атаки в момент попадания, даже если все прочие каналы молчали. Стрелок
-   дальше 250 м — кольцо кладётся на 250 м в ту же сторону (рендер всё равно
-   прибивает дальние кольца к краю экрана).
+1. **`npc_on_hear_callback`** (vanilla Anomaly callback) — the engine "hearing": when any NPC
+   or monster **hears** a sound, the engine reports its type (shot/step/voice/physics —
+   strings from ogg comments, e.g. `WPN_hit`, `MST_attack`), **loudness at the listener** and
+   position. This covers shots, voices, monsters and physics at long range — with honest
+   loudness. Nuance (v2.3): for weapon types the event position is the bullet, so the ring is
+   placed on the shooter (the source object `who_id`).
+   Stalker footsteps are not broadcast by the engine hearing (they play "without feedback") —
+   world polling catches them.
+2. **`anomaly_on_before_activate`** (vanilla) — an anomaly activates (a bolt, an NPC or a
+   monster entered the zone) → **hissing** at the zone point.
+3. **`actor_on_feeling_anomaly`** (vanilla) — the player entered an anomaly field → instant
+   rings at its center.
+4. **`physic_object_on_hit_callback`** (vanilla) — a hit on a physical object: a **knife on a
+   barrel**, a bullet on a crate, a fist on a box → ring at the impact point.
+5. **`actor_on_item_drop`** (vanilla) — a dropped item → a thud at the landing point.
+6. **World polling** (every 250 ms, only objects near the player) — where the engine reports
+   nothing, loudness is estimated by a "virtual anchor" (4 numbers for everything, not a
+   calibration):
+   - NPC/monster movement → **footsteps**: loudness by **movement speed** — sneaking is quiet,
+     walking medium, running loud;
+   - movement of corpses, barrels, boxes, thrown grenades → **physics** (pushing, sliding,
+     falling — the same barrel pushing the AI cannot hear);
+   - anomaly zones (`zone_*`) → periodic **idle hum** (a real zone idle sound plays in cycles
+     with pauses — the mod imitates it with pulses, the rate is configurable);
+   - a bolt: flies past and stops next to a zone → **anomaly activation**.
+7. **`actor_on_footstep`** (vanilla) — the player's own footsteps. **Off** by default (you
+   always feel your own sounds), can be enabled in the MCM.
+8. **Ammo polling** (pure Lua, every 200 ms) — the **guaranteed shot channel**: for every
+   living stalker within 250 m the mod reads the active weapon and the ammo counter — the
+   counter dropped, a shot happened (the queue merges a burst into one living shooter ring; a
+   rising counter is a reload, no ring). Depends on neither a pack's sound metadata, nor the
+   presence of AI listeners, nor executables. Suppressors are respected: a quiet barrel shows
+   at a shorter range (~77 m versus ~246 m for an open barrel). The
+   `npc_on_weapon_shot_start` callback remains a bonus of executables that have it (vanilla
+   Anomaly 1.5.2 does not — see v2.7 below).
+9. **`actor_on_hit_callback`** (vanilla) — the player **got hit** → a ring immediately on
+   whoever struck (for a shot it is the shooter, for a grenade — the grenade): a guaranteed
+   attack marker at the moment of impact, even if every other channel stayed silent. A shooter
+   beyond 250 m — the ring is placed at 250 m in the same direction (the renderer clamps far
+   rings to the screen edge anyway).
 
-Все регистрации колбэков защищены `pcall` — на любой сборке игры (с MCM и без, с modded exes
-и без) недоступный колбэк не ломает остальные.
+All callback registrations are wrapped in `pcall` — on any game build (with MCM or without,
+with modded exes or without) an unavailable callback does not break the others.
+## Why some packs had no halo (v2.1)
 
-## Почему у некоторых паков не было ореола (v2.1)
+The engine hearing channel only works with sounds whose ogg file carries a correct ogg
+comment: without it the engine assigns the sound `game_type = 0` (the `CSoundRender_Source`
+constructor) and **does not broadcast it to AI at all** — the player hears the sound (the
+audio channel has its own ranges), but the mod does not receive it via
+`npc_on_hear_callback`. Rebuilt/converted sounds of weapon packs are the classic case.
+On top of that, the motivator skips self-sounds: for a shooter with no other NPCs nearby the
+hearing channel has nobody to collect events from.
 
-Канал слуха движка работает только со звуками, у которых в ogg-файле есть корректный
-ogg-комментарий: без него движок ставит звуку `game_type = 0` (конструктор
-`CSoundRender_Source`) и **вообще не рассылает его ИИ** — игрок такой звук слышит
-(у аудиоканала свои дальности), а мод через `npc_on_hear_callback` его не получает.
-Пересобранные/конвертированные звуки оружейных паков — классический случай. Кроме того,
-мотиватор пропускает самозвуки: у стрелка, рядом с которым нет других NPC, слуховому
-каналу не с кого собирать события.
+That is why the **guaranteed shot channel** was added (source 8 above): since v2.7 it fires
+by the fact of shooting via **ammo polling** — pure Lua on any build, with any weapon pack and
+without AI listeners. (In v2.1–v2.6 the channel was the `npc_on_weapon_shot_start` callback;
+the combat log of 05.11 showed that this callback does not exist in Anomaly 1.5.2 at all and
+the channel was silent — see v2.7 below.) On any build shots are also drawn by the hearing
+channel: since v2.3 it places the marker on the shooter itself (see below).
 
-Поэтому добавлен **гарантированный канал выстрелов** (источник 8 выше): с v2.7 он
-срабатывает по факту стрельбы **опросом боезапаса** — чистый Lua на любой сборке, с любым
-оружейным паком и без ИИ-слушателей. (В v2.1–v2.6 каналом считался колбэк
-`npc_on_weapon_shot_start`; лог боя 05.11 показал, что этого колбэка в Anomaly 1.5.2
-нет вовсе и канал молчал — см. v2.7 ниже.) На любых сборках выстрелы также рисуются
-каналом слуха: с v2.3 он сам ставит метку на стрелке (см. ниже).
+### Shot marker — on the shooter, not on the bullet (v2.3)
 
-### Метка выстрела — на стрелке, а не на пуле (v2.3)
+The debug log on GAMMA exposed the second cause of missing halos. The engine binds a hearing
+event `WPN_*` to the **bullet**, not to the shooter: the callback's `sound_position` is the
+position of the projectile / the impact point at the pulse moment (every 0.5 s):
 
-Отладочный журнал на GAMMA вскрыл вторую причину пропавших ореолов. Движок
-привязывает событие слуха `WPN_*` к **пуле**, а не к стрелку: `sound_position`
-колбэка — позиция снаряда/точка попадания в момент импульса (каждые 0.5 с):
+- bullets flying at the player gave `pos` 1.7–3.5 m from the player (the shooter at ~23 m) —
+  rings flashed at the player's feet;
+- misses flew 79–85 m past the player — the loudness `power·(dl/dp)²` collapsed to
+  0.013 < threshold 0.02, and the event was rejected by the gate.
 
-- пули, летящие в игрока, давали `pos` в 1.7–3.5 м от игрока (стрелок в ~23 м) —
-  кольца вспыхивали у ног;
-- промахи улетали на 79–85 м за игрока — громкость `power·(dl/dp)²` обрушалась
-  до 0.013 < порога 0.02, и событие отклонялось гейтом.
+In both cases the shooter was left without a marker. Since v2.3 the mod anchors `WPN_*`
+events to the live position of the source object (`who_id`) — **the ring is placed on the
+shooter**, with loudness recomputed to him (since v2.4 — from the sound type anchor, see
+below). Works with any pack and on any executables: the engine always broadcasts impact
+sounds, no weapon sections need to be known. Grenade and explosion positions (strings without
+the `WPN_` prefix) are not moved — there the explosion point is more useful. In the log the
+move shows as the suffix `(anchored: pos 85m -> shooter 23m, anv=shot)`.
 
-В обоих случаях стреляющий оставался без метки. С v2.3 мод якорит события `WPN_*`
-на живой позиции объекта-источника (`who_id`) — **кольцо ставится на стрелке**,
-громкость пересчитывается до него (с v2.4 — от якоря типа звука, см. ниже).
-Работает с любым паком и на любых экзешниках: звуки попаданий движок рассылает
-всегда, знать секции оружия не нужно. Позиции гранат и взрывов (строки без
-префикса `WPN_`) не переносятся — там точка взрыва полезнее. В журнале перенос
-виден суффиксом `(anchored: pos 85m -> shooter 23m, anv=shot)`.
+### Marker stability (v2.4)
 
-### Стабильность меток (v2.4)
+A GAMMA test showed jitter: markers appeared every other time. Causes and fixes:
 
-Тест на GAMMA показал дрожание: метки появлялись через раз. Причины и решения:
+1. **Loudness depended on a random listener.** A moved event carried the reading at the
+   AI listener of the bullet: for a listener 3 m from the bullet the same shot gave loudness
+   0.010 (below threshold — no marker), for a listener 19 m away — 0.170 (marker present).
+   Now the loudness of a moved event is taken from the **virtual anchor of the sound type** —
+   as in the guaranteed channel: a shot is visible up to ~150 m, with a suppressor up to
+   ~77 m (the suppressor is read from the shooter's active weapon), a reload up to ~40 m, a
+   dry click and weapon draw — up close. Identical in every fight, no matter who heard the
+   bullet.
+2. **The queue overflowed.** Every hearing event created a new ring: in combat the queue
+   (16 waves) filled up and markers evicted each other before living out their wave. Now
+   `weapon` events of one source **merge** into one living ring: it pulses and follows the
+   shooter, and the queue is enough for everyone. In the log the merge shows as a
+   `QUEUE refreshed` line.
+3. **A shared anti-spam key.** Footsteps and shots of one NPC shared one anti-spam pause and
+   ate each other's waves. The key is now separate: category + source.
 
-1. **Громкость зависела от случайного слушателя.** Перенесённое событие несло
-   замер у ИИ-слушателя пули: у слушателя в 3 м от пули тот же выстрел давал
-   громкость 0.010 (ниже порога — метки нет), у слушателя в 19 м — 0.170
-   (метка есть). Теперь громкость перенесённого события берётся от
-   **виртуального якоря типа звука** — как в гарантированном канале: выстрел
-   виден до ~150 м, с глушителем до ~77 м (глушитель читается из активного
-   оружия стрелка), перезарядка до ~40 м, сухой щелчок и доставание оружия —
-   вблизи. Одинаково в каждом бою, независимо от того, кто услышал пулю.
-2. **Очередь переполнялась.** Каждое событие слуха создавало новое кольцо: в
-   бою очередь (16 волн) заполнялась, и метки вытесняли друг друга, не дожив
-   до волны. Теперь события `weapon` одного источника **склеиваются** в одно
-   живое кольцо: пульсирует и следует за стрелком, очередь хватает всем.
-   В журнале склейка видна строкой `QUEUE refreshed`.
-3. **Общий ключ антиспама.** Шаги и выстрелы одного NPC делили одну паузу
-   антиспама и съедали волны друг друга. Ключ теперь раздельный: категория +
-   источник.
+Bonus: human footsteps and speech arrive with the `MST_` prefix (like mutants) and glowed
+purple "monster" — now humans get yellow footsteps and white speech; purple stays with
+mutants.
 
-Бонус: шаги и речь людей приходят с префиксом `MST_` (как у мутантов) и
-светились фиолетовым «монстром» — теперь у людей это жёлтые шаги и белая речь;
-фиолетовый остался мутантам.
+### Incoming fire, helicopters and a clean log (v2.5)
 
-### Входящий огонь, вертолёты и чистый лог (v2.5)
+A GAMMA test against a helicopter exposed two problems.
 
-Тест на GAMMA против вертолёта вскрыл две проблемы.
+**`cannot access class member` errors.** The loudness anchor choice probed `active_item` of
+the sound source to read the suppressor. Stalkers have the method, helicopters do not: the
+engine binding printed an error into the log on **every** hit, even under `pcall`. Now the
+method is only probed on humans (`IsStalker`), vehicles immediately get the full-shot anchor —
+the log is clean. (The `!MCM given bad path: rax_ammo_check/...` spam from the same log is
+another mod, unrelated to Sound Vision.)
 
-**Ошибки `cannot access class member`.** Выбор якоря громкости щупал
-`active_item` у источника звука, чтобы прочитать глушитель. У сталкеров метод
-есть, у вертолёта — нет: биндинг движка печатает ошибку в лог на **каждом**
-попадании, даже под `pcall`. Теперь метод проверяется только у людей
-(`IsStalker`), техника сразу получает якорь полного выстрела — лог чистый.
-(Спам `!MCM given bad path: rax_ammo_check/...` из того же лога — другой мод,
-к Sound Vision отношения не имеет.)
+**The helicopter had no halos.** The v2.4 anchor loudness is computed from the shooter's
+distance: for a helicopter at 300–550 m the shot is "inaudible" (0.004 < threshold 0.02), and
+even when its bullets chewed the ground 7–25 m from the player, there was no ring. Now for
+`WPN_*` the loudness decides — whoever is louder:
 
-**Вертолёт оставался без ореолов.** Якорная громкость v2.4 считается от
-дистанции стрелка: у вертолёта в 300–550 м выстрел «неслышим» (0.004 < порога
-0.02), и даже когда его пули крошили землю в 7–25 м от игрока, кольца не было.
-Теперь для `WPN_*` решает громкость — кто слышнее:
+- the shooter is within shot-hearing range → ring on the shooter (as in v2.4);
+- the shooter is not audible but the impact near the player is → an **incoming fire ring** at
+  the impact point (loudness — the AI listener reading moved to the player).
 
-- стрелок в пределах слышимости выстрела → кольцо на стрелке (как в v2.4);
-- стрелок не слышен, а попадание у игрока слышно → **кольцо входящего огня**
-  в точке попадания (громкость — перенос замера у ИИ-слушателя на игрока).
+A regression of a normal fight is excluded: for a close shooter the anchor is louder than the
+impact, and the ring still stands steadily on him. In the log incoming fire shows as the
+suffix `(incoming fire: shooter 299m below threshold -> impact ring, im=0.517)`.
 
-Регресс обычного боя исключён: у близкого стрелка якорь громче попадания,
-кольцо по-прежнему стабильно стоит на нём. В журнале входящий огонь виден
-суффиксом `(incoming fire: shooter 299m below threshold -> impact ring, im=0.517)`.
+**Helicopter flight sound.** The rotor is a looping sound, the engine does not broadcast it to
+AI, the hearing channel is silent about the flight. But the helicopter's bullets arrive with
+the vehicle's `who_id`: the mod remembers the object and for 90 seconds after the last bullet
+pulses an **orange "vehicle" ring** (`kind=vehicle`) at its live position every 3 s (up to
+600 m). The category shares the MCM toggle with "Weapons".
 
-**Звук полёта вертолёта.** Винт — цикличный звук, движок его ИИ не рассылает,
-канал слуха о полёте молчит. Но пули вертолёта приходят с `who_id` техники:
-мод запоминает объект и 90 секунд после последней пули пульсирует
-**оранжевым кольцом «техника»** (`kind=vehicle`) в его живой позиции раз в 3 с
-(до 600 м). Категория делит переключатель MCM с «Оружием».
+### The shot lives at the barrel (v2.6)
 
-### Выстрел живёт у ствола (v2.6)
+A test in a regular fight: an enemy at ~43 m pours fire at the player — muzzle flashes are
+visible, shots are audible, but there are no rings. In the log:
+`[GATE] rejected (below threshold): loud=0.0039/0.0046 < 0.0200 d=42–44 m`.
 
-Тест в обычном бою: враг в ~43 м поливает игрока — вспышки видно, выстрелы
-слышно, а колец нет. В журнале: `[GATE] rejected (below threshold): loud=0.0039/0.0046 < 0.0200 d=42–44м`.
+The cause is a hole in the v2.5 rule. The "who is louder" comparison only ran when the bullet
+point diverged from the shooter by more than 2 m; while the bullet was still at the barrel,
+the event went into the old reading move: `loud = p·(dl/dp)²`. And the engine reading at an AI
+listener standing right next to the shooter (dl ≈ 3 m, p ≈ 0.98), crushed by the inverse
+square, gives `0.98·(3/43)² ≈ 0.004 < 0.02` — no ring, although at that moment the shot is
+loud at the player.
 
-Причина — дыра в правиле v2.5. Сравнение «кто слышнее» запускалось только при
-расхождении точки пули со стрелком больше 2 м; когда пуля ещё у ствола,
-событие уходило в старый перенос замера: `loud = p·(dl/dp)²`. А движковый
-замер у ИИ-слушателя, стоящего вплотную к стрелку (dl ≈ 3 м, p ≈ 0.98),
-обратным квадратом давится до `0.98·(3/43)² ≈ 0.004 < 0.02` — кольца нет,
-хотя у игрока выстрел в этот момент громкий.
+Fix: **WPN_shoot — the shot sound itself, emitted at the barrel — is always anchored to the
+shooter**, without comparing with the bullet (the suppressor is still read from the
+shooter-stalker). The "who is louder" rule is kept for `WPN_hit` — there the engine point
+means an impact, and the v2.5 incoming fire works as before.
 
-Решение: **WPN_shoot — сам звук выстрела, он излучается у ствола — якорится
-к стрелку всегда**, без сравнения с пулей (глушитель по-прежнему читается у
-стрелка-сталкера). Правило «кто слышнее» сохранено для `WPN_hit` — там точка
-движка означает попадание, и входящий огонь из v2.5 работает как раньше.
+Additionally, a gate/queue mismatch was removed: the shot anchor (0.60@45 m) is audible up to
+~246 m, while the queue cut everything beyond 150 m. Now `KIND_CAP.weapon = 250` — shots are
+visible across the anchor's whole range (up to ~246 m, with a suppressor up to ~77 m, as
+before).
 
-Дополнительно снят рассинхрон гейта и очереди: якорь выстрела
-(0.60@45 м) слышен до ~246 м, а очередь резала всё дальше 150 м. Теперь
-`KIND_CAP.weapon = 250` — выстрелы видны на всей дальности якоря (до ~246 м,
-с глушителем — до ~77 м, как и было).
+Regression checks (log replay in `verify_loudness.py`, sections 12–15): the log fight — 2/2
+rings instead of 0/2; a bullet in flight and misses — as in v2.5; `WPN_hit`/helicopter —
+unchanged.
 
-Регресс-проверки (реплей логов в `verify_loudness.py`, секции 12–15):
-бой из лога — 2/2 кольца вместо 0/2; пуля в полёте и промахи — как в v2.5;
-`WPN_hit`/вертолёт — без изменений.
+### Attack marker — always (v2.7)
 
-### Маркер атаки — всегда (v2.7)
+A test against bandit rejects: "they are shooting, but the red marker is there, then it is
+not — while it must always be there". The combat log (2629 lines) exposed three independent
+causes of misses:
 
-Тест против бандитов-реджеков: «стреляют, а красная метка то есть, то нет — а она
-всегда быть должна». Журнал боя (2629 строк) вскрыл три независимые причины пропусков:
+1. **The shot callback channel does not exist.** Vanilla Anomaly 1.5.2 has no
+   `npc_on_weapon_shot_start` callback (the anomaly-modding-book callback list), and
+   `RegisterScriptCallback` does not check names — "registration" succeeded, but the engine
+   never invoked the callback: over the whole fight the `SHOT` channel produced not a single
+   line.
+2. **The hearing channel is silent for independent reasons.** A shot reaches the mod through
+   AI hearing only if the shot sound has a valid ogg comment (otherwise `game_type = 0` and
+   the engine does not broadcast it) and there is at least one AI listener near the shooter.
+   In the fight log the rejects with carbines produced 3 `WPN_hit` events for the entire
+   firefight — hence "sometimes there, sometimes not".
+3. **The queue and gates** finished the rest: eviction of live weapon rings by the background
+   flow (62–84% in simulation), the loudness threshold and anti-spam.
 
-1. **Канала выстрелов на колбэке не существует.** В ванильном Anomaly 1.5.2 колбэка
-   `npc_on_weapon_shot_start` нет (список колбэков anomaly-modding-book), а
-   `RegisterScriptCallback` не проверяет имена — «регистрация» проходила, но движок
-   колбэк не вызывал ни разу: за весь бой канал `SHOT` не дал ни одной строки.
-2. **Канал слуха молчит по независимым причинам.** Выстрел доходит до мода через слух ИИ,
-   только если у звука выстрела валидный ogg-комментарий (иначе `game_type = 0` и движок
-   звук не рассылает) и рядом со стрелком есть хоть один ИИ-слушатель. В логе боя у
-   реджеков с карабинами это 3 события `WPN_hit` на весь огонь — отсюда «то есть, то нет».
-3. **Очередь и гейты** добивали остальное: вытеснение живых weapon-колец фоновым потоком
-   (62–84% в симуляции), порог громкости и антиспам.
+The solution is the "**engine fact → ring**" contract plus **we mine the fact ourselves**:
 
-Решение — контракт «**движковый факт → кольцо**» плюс **факт добываем сами**:
+- **ammo polling** (source 8 in the list above): every 200 ms the mod reads the ammo counters
+  of the active weapons of all living stalkers within 250 m; the counter dropped — a shot
+  happened, a ring on the shooter. A reload (the counter rose) gives no ring. Works on any
+  build;
+- **a ring on hit** (source 9): the player got hit — a marker immediately on the attacker,
+  even if every other channel was silent;
+- everything arriving over the **hearing channel** (`npc_on_hear_callback`) is shown **always**
+  (the `fact` flag in `push_event`); the only limit is the category range cap
+  (weapon 250 m, others 150 m);
+- **anti-spam does not act on weapon**: copies of one sound from different listeners merge
+  into one living shooter ring;
+- **weapon rings are protected from eviction**: on overflow the queue pushes out the oldest
+  NON-weapon event (footsteps/physics/zone hum) and only if the queue is entirely weapon —
+  the oldest weapon (`evicted oldest … weapon protected` in the log);
+- **the loudness gate was removed entirely** — including for world polling: the zone hum at
+  48 m (0.0135 < 0.02) and crows at 24 m are no longer cut. Loudness remained only in ring
+  size and brightness; the "Hearing threshold" MCM option was replaced by this policy
+  (in v2.8.2 the threshold returned as an option, default 10 ppt, shot markers untouched);
+- **anomalies no longer "shoot"**: a zone's thermal discharge arrives as type `WPN_shoot`,
+  and previously an anomaly drew a red attack ring from 150 m away (in the log:
+  `who=zone_mine_thermal_weak → weapon, 168 m`). A `WPN_*` sound from someone who is not a
+  stalker/mutant/vehicle is now recolored into a turquoise "anomaly".
 
-- **опрос боезапаса** (источник 8 в списке выше): раз в 200 мс мод читает счётчики
-  патронов активного оружия всех живых сталкеров в 250 м; счётчик упал — выстрел был,
-  кольцо у стрелка. Перезарядка (счётчик вырос) кольца не даёт. Работает на любой сборке;
-- **кольцо при попадании** (источник 9): игрока задело — метка сразу на атакующем,
-  даже если все прочие каналы молчали;
-- всё, что пришло по **каналу слуха** (`npc_on_hear_callback`), показывается **всегда**
-  (флаг `fact` в `push_event`); единственное ограничение — потолок дальности категории
-  (weapon 250 м, прочие 150 м);
-- **антиспам на weapon не действует**: копии одного звука от разных слушателей склеиваются
-  в одно живое кольцо стрелка;
-- **weapon-кольца защищены от вытеснения**: при переполнении очередь выталкивает самое
-  старое НЕ-weapon событие (шаги/физика/гул зон) и только если очередь целиком из weapon —
-  самое старое weapon (`evicted oldest … weapon protected` в журнале);
-- **гейт громкости удалён совсем** — в том числе у опроса мира: гул зоны в 48 м
-  (0.0135 < 0.02) и ворон в 24 м больше не режутся. Громкость осталась только на
-  размере и яркости кольца; опцию «Порог слышимости» в MCM заменила эта политика;
-- **аномалии больше не «стреляют»**: thermal-разряд зоны приходит типом `WPN_shoot`, и
-  раньше аномалия рисовала красное кольцо атаки за 150 м (в логе:
-  `who=zone_mine_thermal_weak → weapon, 168 м`). Звук `WPN_*` от того, кто не
-  сталкер/не мутант/не техника, теперь перекрашивается в бирюзовую «аномалию».
+Checks: queue simulation (`sim_queue_interference.py`) — with rejects shooting (v2.6: hearing
+delivered ~15% of shots) the ring was visible 17–25% of the firing time; v2.7 (polling 100% +
+merging + protection) — **100% visibility and 0% evictions**, including rings=3 (queue 10) and
+ten zones nearby; syntax — no errors.
 
-Проверки: симуляция очереди (`sim_queue_interference.py`) — при стрельбе с реджеками
-(v2.6: слух доставлял ~15% выстрелов) кольцо было видно 17–25% времени огня; v2.7
-(опрос 100% + склейка + защита) — **100% видимости и 0% вытеснений**, в том числе при
-rings=3 (очередь 10) и десяти зонах рядом; синтаксис — без ошибок.
+### Adaptive type pool
 
-### Адаптивный пул типов
+Sound type strings of modpacks are not standardized — a hard-coded list is impossible. The
+classifier (`sound_vision_classify`) recognizes a new string in a cascade:
 
-Строки типов звука у модпаков не нормированы — жёсткий список невозможен. Классификатор
-(`sound_vision_classify`) распознаёт новую строку каскадом:
+1. **user overrides** — `sound_vision_overrides.script` (highest priority);
+2. **substring heuristics** — `wpn/weapon/shoot`, `mst/monster`, `voice/talk/scream`,
+   `step/walk`, `anom/zone`, `obj/drop/door/hit` — covers vanilla and most packs;
+3. **inference from the source** — an unrecognized sound from a mutant → purple "monster";
+4. otherwise — neutral blue "other".
 
-1. **переопределения пользователя** — `sound_vision_overrides.script` (высший приоритет);
-2. **эвристика по подстрокам** — `wpn/weapon/shoot`, `mst/monster`, `voice/talk/scream`,
-   `step/walk`, `anom/zone`, `obj/drop/door/hit` — покрывает ваниль и большинство паков;
-3. **вывод по источнику** — нераспознанный звук мутанта → фиолетовый «монстр»;
-4. иначе — нейтральное синее «прочее».
+The result is remembered in a registry (a string is recognized once per session).
 
-Результат запоминается в реестре (строка распознаётся один раз за сессию).
+### How to teach the mod the sounds of your pack
 
-### Как научить мод звуки своего пака
-
-1. В MCM (раздел «Отладка») включите **«Журнал типов звуков»**.
-2. Поиграйте: постреляйте, перезаряжайтесь — что угодно.
-3. Откройте лог игры (`appdata\logs\xray_<имя>.log`) и найдите строки
-   `[sound_vision][TYPES] s_type '...' -> категория`.
-4. Впишите нужную строку в `sound_vision_overrides.script`:
+1. In the MCM (the "Debug" section) enable **"Sound type log"**.
+2. Play: shoot, reload — anything.
+3. Open the game log (`appdata\logs\xray_<name>.log`) and find the lines
+   `[sound_vision][TYPES] s_type '...' -> category`.
+4. Put the needed string into `sound_vision_overrides.script`:
 
 ```lua
 sound_vision_overrides = {
         map = {
-                ["my_pack_custom_fire"] = "weapon", -- красное кольцо выстрела
+                ["my_pack_custom_fire"] = "weapon", -- red shot ring
         },
 }
 ```
 
-## Установка
+## Installation
 
 ### Mod Organizer 2
-1. Скачайте архив `SoundVision_v2.8.zip`.
-2. В MO2: вкладка *Archives* (справа) → *Install From file* → выберите архив.
-3. Убедитесь, что мод включён и стоит **выше** модов, которые могли бы менять
-   `sound_vision.*` (их нет — конфликтов по именам нет).
-4. Запустите игру.
+1. Download the `SoundVision_v2.8.2.zip` archive.
+2. In MO2: the *Archives* tab (on the right) → *Install From file* → pick the archive.
+3. Make sure the mod is enabled and sits **above** mods that could change `sound_vision.*`
+   (there are none — no name conflicts exist).
+4. Launch the game.
 
-### Вручную
-Скопируйте папку `gamedata` из архива в корень игры (там, где лежит `AnomalyLauncher.exe`)
-с объединением папок. Перезаписи существующих файлов не будет.
+### Manually
+Copy the `gamedata` folder from the archive into the game root (where `AnomalyLauncher.exe`
+lives), merging folders. No existing files will be overwritten.
 
-### Обновление с прошлых версий
-Просто удалите старую версию (в MO2 — деактивируйте) и поставьте свежую поверх: имена файлов
-не менялись, ничего вручную править не нужно.
+### Upgrading from previous versions
+Just remove the old version (deactivate in MO2) and install the fresh one on top: file names
+did not change, nothing needs manual editing.
 
-### Требования
-- **MCM (Mod Configuration Menu)** — опционально. Без него мод работает с настройками
-  по умолчанию (включён, все пойманные звуки показываются).
-- **Всё работает на ванильных экзешниках 1.5.1+**: гарантированный канал выстрелов —
-  чистый Lua (опрос боезапаса + `actor_on_hit_callback`), моддед-экзешники не требуются.
-  Колбэк `npc_on_weapon_shot_start`, если на сборке он есть, лишь ускоряет реакцию.
+### Requirements
+- **MCM (Mod Configuration Menu)** — optional. Without it the mod runs with default settings
+  (enabled, every caught sound is shown).
+- **Everything works on vanilla executables 1.5.1+**: the guaranteed shot channel is pure Lua
+  (ammo polling + `actor_on_hit_callback`), modded exes are not required. The
+  `npc_on_weapon_shot_start` callback, if the build has it, merely speeds up the reaction.
 
-## Настройки (MCM → Sound Vision)
+## Settings (MCM → Sound Vision)
 
-### Общие
-| Параметр | По умолчанию | Описание |
+### General
+| Option | Default | Description |
 |---|---|---|
-| Включить мод | вкл | показать/скрыть все кольца |
-| Показывать свои звуки | выкл | кольца для собственных шагов/выстрелов игрока |
-| Радиус опроса мира | 45 м | охват опроса шагов/физики/зон; в режиме «по дистанции» — единый предел показа (5–100) |
-| Время жизни волны | 1.2 с | как долго расширяется и гаснет одно кольцо |
-| Пауза от одного источника | 0.3 с | анти-спам: не чаще одной волны за это время от одного источника в каждой категории; выстрелы (weapon) не ограничиваются — копии склеиваются в одно живое кольцо (v2.7) |
+| Enable mod | on | show/hide all rings |
+| Show my own sounds | off | rings for the player's own footsteps/shots |
+| Detection range | 45 m | world polling coverage for footsteps/physics/zones; in the "by distance" mode — the single show limit (5–100) |
+| Wave lifetime | 1.2 s | how long one ring expands and fades |
+| Per-source delay | 0.3 s | anti-spam: at most one wave per this time from one source in each category; shots (weapon) are not limited — copies merge into one living ring (v2.7) |
 
-### Слышимость
-| Параметр | По умолчанию | Описание |
+### Hearing
+| Option | Default | Description |
 |---|---|---|
-| Показывать только слышимые звуки | вкл | с v2.7 все пойманные звуки показываются всегда (гейта громкости нет); настройка влияет только на опрос мира: вкл — потолок дальности категории, выкл — единый радиус «Дальность обнаружения» |
+| Show only audible sounds | on | every caught sound is always shown; the option only affects world polling: on — the category range cap, off — the single "Detection range" radius |
+| Hearing threshold | 10 ppt | minimum loudness at the player for a ring to be drawn, in thousandths of full (0–100); 0 — show everything. Shot, reload and hit markers ignore it (v2.8.2) |
 
-### Размер и анимация
-| Параметр | По умолчанию | Описание |
+### Size and animation
+| Option | Default | Description |
 |---|---|---|
-| Размер кольца | 96 px | размер кольца у близкого источника (виртуальные пиксели HUD) |
-| Базовое расстояние | 8 м | на этом расстоянии кольцо имеет полный размер |
-| Минимальный размер | 12 % | предел уменьшения для самых дальних звуков (5–50 %) |
-| Волн на один звук | 2 | 1–3, «сонар» |
-| Яркость | 85 % | общая непрозрачность |
+| Ring size | 96 px | ring size for a close source (HUD virtual pixels) |
+| Reference distance | 8 m | at this distance a ring has full size |
+| Minimum size | 12 % | shrink limit for the farthest sounds (5–50 %) |
+| Waves per sound | 2 | 1–3, "sonar" |
+| Brightness | 85 % | overall opacity |
 
-### Виньетка центра (v2.8)
-| Параметр | По умолчанию | Описание |
+### Center vignette (v2.8)
+| Option | Default | Description |
 |---|---|---|
-| Гасить центр экрана | вкл | виньетка-маска: кольца почти гаснут в зоне прицела, к краям возвращаются до полной яркости |
-| Яркость в центре | 10 % | сколько от обычной яркости остаётся в самом центре (2–50 %) |
-| Радиус тусклой зоны | 50 % | как далеко от центра тянется приглушённая зона, % пути от центра до края экрана (10–80 %) |
-| Радиус полной яркости | 100 % | на каком расстоянии от центра кольца снова полные, % пути до края (40–150 %) |
+| Dim the screen center | on | vignette mask: rings almost die out in the crosshair zone, returning to full brightness toward the edges |
+| Center brightness | 10 % | how much of the usual brightness remains in the very center (2–50 %) |
+| Dim zone radius | 50 % | how far the dimmed zone stretches from the center, % of the way from center to screen edge (10–80 %) |
+| Full brightness radius | 100 % | at what distance from the center rings are full again, % of the way to the edge (40–150 %) |
 
-### Стены и видимость (v2.8)
-| Параметр | По умолчанию | Описание |
+### Walls and visibility (v2.8)
+| Option | Default | Description |
 |---|---|---|
-| Учёт перекрытия стенами | вкл | проверка линии видимости лучом: видимый напрямую источник — полупрозрачный, за стеной — размытый ореол |
-| Яркость видимых источников | 40 % | яркость колец источников без стены между вами (10–90 %); 40 % = прозрачность 60 % |
-| Яркость источников за стеной | 70 % | яркость колец источников, скрытых стеной (0–100 %); ключевая информация для слабослышащих, поэтому ярче видимых |
-| Размытые ореолы за стенами | вкл | мягкая размытая текстура ореола для источников за стеной; пик текстуры равен обычному кольцу — размытие не снижает яркость |
-| Размер размытого ореола | 130 % | насколько шире ореол источника за стеной (100–180 %) |
-| Гасить за стеной виньеткой центра | выкл | если включить, виньетка центра экрана гасит и источники за стеной (поведение v2.8) |
+| Wall awareness | on | line-of-sight check by ray: a directly visible source — translucent, behind a wall — a blurred halo |
+| Visible source brightness | 40 % | brightness of rings for sources with no wall between you (10–90 %); 40 % = 60 % transparency |
+| Behind-wall brightness | 70 % | brightness of rings for sources hidden by a wall (0–100 %); key information for the hard-of-hearing, so brighter than visible |
+| Blurred halos behind walls | on | soft blurred halo texture for behind-wall sources; the texture peak equals a normal ring — blurring does not reduce brightness |
+| Blurred halo size | 130 % | how much wider the halo of a behind-wall source is (100–180 %) |
+| Dim behind-wall by center vignette | off | if enabled, the center vignette also dims behind-wall sources (v2.8 behavior) |
 
-### Типы звуков
-Шесть переключателей категорий: выстрелы/оружие, голос/речь, шаги/движение, мутанты,
-аномалии, физика/прочее. Каждую категорию можно отключить по отдельности.
+### Sound types
+Six category toggles: gunshots/weapons, voice/speech, footsteps/movement, mutants, anomalies,
+physics/other. Each category can be disabled separately.
 
-### Источники обнаружения
-| Параметр | По умолчанию | Описание |
+### Detection sources
+| Option | Default | Description |
 |---|---|---|
-| Пауза гула аномалий | 4 с | как часто каждая зона пульсирует в простое (2–10 с) |
-| Следить за движением объектов | вкл | толкание бочек, скольжение коробок, гранаты |
-| Порог движения объекта | 12 см | чувствительность: меньше = больше колец (5–50 см) |
-| Гарантированный канал выстрелов | вкл | опрос боезапаса сталкеров в 250 м: счётчик упал — выстрел; плюс кольцо на атакующем, когда вас задели. Работает на любой сборке |
+| Anomaly hum pause | 4 s | how often each zone pulses while idle (2–10 s) |
+| Track moving objects | on | pushed barrels, sliding boxes, grenades |
+| Object move threshold | 12 cm | sensitivity: lower = more rings (5–50 cm) |
+| Guaranteed shot channel | on | ammo polling of stalkers within 250 m: the counter dropped — a shot; plus a ring on the attacker when you get hit. Works on any build |
 
-### Отладка
-| Параметр | По умолчанию | Описание |
+### Debug
+| Option | Default | Description |
 |---|---|---|
-| Журнал отладки | выкл | полный трейс конвейера звука в лог игры (см. «Диагностика» ниже) |
-| Журнал типов звуков | выкл | новые строки типов → лог игры, для настройки `sound_vision_overrides` |
+| Debug log | off | full trace of the sound pipeline into the game log (see "Diagnostics" below) |
+| Sound type log | off | new type strings → game log, for tuning `sound_vision_overrides` |
 
-> **Как подобрать размер под себя:** «Размер кольца» + «Базовое расстояние» + «Минимальный
-> размер» вместе задают, как кольцо уменьшается с дистанцией: у источников ближе 8 м оно
-> полное (96 px), дальше — плавно уменьшается до 12% размера. Хотите «дальше виднее» —
-> увеличьте базовое расстояние и минимальный размер.
+> **How to fit the size to yourself:** "Ring size" + "Reference distance" + "Minimum size"
+> together define how the ring shrinks with distance: sources closer than 8 m get the full
+> ring (96 px), farther — it smoothly shrinks down to 12% of the size. Want "farther = more
+> visible" — raise the reference distance and the minimum size.
 
-## Диагностика (журнал отладки)
+## Diagnostics (debug log)
 
-Если «звук слышно, а кольца нет» — включите в MCM (Sound Vision → **Отладка**)
-**«Журнал отладки»** и откройте лог игры (`appdata\logs\xray_<имя>.log`). Каждое событие
-проходит конвейер, и каждый слой пишет свою строку с префиксом `[sound_vision]`:
+If "the sound is audible but there are no rings" — enable in the MCM (Sound Vision →
+**Debug**) the **"Debug log"** and open the game log (`appdata\logs\xray_<name>.log`). Every
+event passes a pipeline, and every layer writes its own line prefixed `[sound_vision]`:
 
-| Тег | Что пишет |
+| Tag | What it writes |
 |---|---|
-| `INIT` | старт мода: какие колбэки зарегистрированы и итоговые настройки, включая параметры гарантированного канала (`ammo-poll 200ms/250m + actor hit`), виньетки и перекрытия |
-| `CONFIG` | настройки перечитаны (маркер «MCM применился») |
-| `HEAR` | каналы слуха ПОЙМАЛИ звук: тип, источник `id(секция)`, громкость у слушателя и расчётная у игрока; для `WPN_*` — суффикс `(anchored: pos … -> shooter …)`, если кольцо перенесено с пули на стрелка |
-| `SHOT` | гарантированный канал: `poll: npc=… ammo 30->29` — опрос боезапаса поймал выстрел; `actor hit: who=…` — игрока задело, метка на атакующем |
-| `DETECT` | опрос мира увидел шаги/физику/зоны (шаги — не чаще раза в секунду на персонажа) |
-| `GATE` | очередь **отклонила** событие и почему: `too far` (дальше потолка дальности категории: weapon 250 м, прочие 150 м), `no loudness data`, `throttle` (антиспам опроса мира; weapon не режется), `category off`, `mod disabled` (порога `below threshold` с v2.7 больше нет) |
-| `QUEUE` | очередь **приняла** событие — кольцо поставлено (id присвоен); `evicted oldest … weapon protected` — при переполнении вытолкнуто старое фоновое событие, красная метка сохранена (v2.7) |
-| `OCC` | учёт перекрытия (v2.8): доступность `ray_pick` на этой сборке (одна строка при первом луче); ПРИНЯТЫЕ смены состояния — `visible (clear LOS)` / `occluded (wall)` с дистанцией и временем подтверждения; `flap suppressed` — подавленное мерцание на углу/заборе; отключение фичи при сломанном биндинге |
-| `RENDER` | `shown` — индикатор выведен на экран (+ `occ=seen/wall/?` — состояние перекрытия); `FAILED` — событие умерло, ни разу не спроецировавшись; `HUD hidden` — меню поверх |
-| `TYPES` | журнал типов звуков (свой чекбокс, от мастер-выключателя не зависит) |
+| `INIT` | mod start: which callbacks registered and the final settings, including the guaranteed channel parameters (`ammo-poll 200ms/250m + actor hit`), the vignette and occlusion |
+| `CONFIG` | settings re-read (the "MCM applied" marker) |
+| `HEAR` | hearing channels CAUGHT a sound: type, source `id(section)`, loudness at the listener and the estimate at the player; for `WPN_*` — the suffix `(anchored: pos … -> shooter …)` if the ring was moved from the bullet to the shooter |
+| `SHOT` | the guaranteed channel: `poll: npc=… ammo 30->29` — ammo polling caught a shot; `actor hit: who=…` — the player got hit, marker on the attacker |
+| `DETECT` | world polling saw footsteps/physics/zones (footsteps — at most once per second per character) |
+| `GATE` | the queue **rejected** the event and why: `too far` (beyond the category range cap: weapon 250 m, others 150 m), `below threshold` (loudness at the player below the "Hearing threshold"; weapon is never cut), `no loudness data`, `throttle` (world polling anti-spam; weapon is never cut), `category off`, `mod disabled` |
+| `QUEUE` | the queue **accepted** the event — a ring is placed (id assigned); `evicted oldest … weapon protected` — on overflow the oldest background event was pushed out, the red marker survived (v2.7) |
+| `OCC` | occlusion (v2.8): `ray_pick` availability on this build (one line at the first ray); ACCEPTED state changes — `visible (clear LOS)` / `occluded (wall)` with distance and confirmation time; `flap suppressed` — corner/fence flicker suppressed; feature disabled on a broken binding |
+| `RENDER` | `shown` — the indicator is on screen (+ `occ=seen/wall/?` — the occlusion state); `FAILED` — the event died without ever being projected; `HUD hidden` — a menu on top |
+| `TYPES` | sound type log (its own checkbox, independent of the master switch) |
 
-Как читать цепочку на примере «бот стреляет, кольца нет»:
+How to read the chain using "a bot shoots, no ring":
 
 ```
-нет ни HEAR, ни SHOT (poll)                -> выстрел не мог случиться; для прочих звуков:
-                                              ogg-комментарий без game_type движком
-                                              не рассылается (см. справочник)
-HEAR/SHOT есть, GATE too far               -> дальше потолка дальности категории
-                                              (weapon 250 м / прочие 150 м)
-GATE throttle                              -> антиспам опроса мира (шаги/физика/зоны);
-                                              weapon им не режется (v2.7)
-QUEUE есть, а RENDER shown нет             -> HUD спрятан меню или не откалибрована проекция
-OCC: ray_pick NOT available                -> сборка без ray_pick: перекрытие
-                                              не учитывается, кольца как в v2.7
-кольцо бледное у видимого врага            -> это v2.8: видимый напрямую
-                                              источник полупрозрачен (MCM:
-                                              «Яркость видимых источников»)
-кольцо за стеной бледное в центре экрана   -> v2.8.1: виньетка источник за
-                                              стеной не гасит; проверьте MCM
-                                              «Яркость источников за стеной»
-                                              и галочку «Гасить за стеной
-                                              виньеткой центра»
+neither HEAR nor SHOT (poll)               -> the shot could not have happened; for other sounds:
+                                              an ogg comment without game_type is not
+                                              broadcast by the engine (see the reference)
+HEAR/SHOT present, GATE too far            -> beyond the category range cap
+                                              (weapon 250 m / others 150 m)
+GATE throttle                              -> world polling anti-spam (footsteps/physics/zones);
+                                              weapon is never cut (v2.7)
+GATE below threshold                       -> loudness at the player below the "Hearing threshold"
+                                              (MCM "Hearing"); weapon is never cut
+QUEUE present but no RENDER shown          -> the HUD is hidden by a menu or the projection
+                                              is not calibrated
+OCC: ray_pick NOT available                -> a build without ray_pick: occlusion
+                                              is not applied, rings as in v2.7
+the ring is pale on a visible enemy        -> this is v2.8: a directly visible
+                                              source is translucent (MCM:
+                                              "Visible source brightness")
+the ring behind a wall is pale in the center -> v2.8.1: the vignette does not dim
+                                              behind-wall sources; check the MCM
+                                              "Behind-wall brightness"
+                                              and the "Dim behind-wall by center
+                                              vignette" checkbox
 ```
 
-Строки однотипных отказов дедуплицируются (не чаще раза в секунду на источник),
-чтобы журнал оставался читаемым. После диагностики выключите.
+Lines of identical rejections are deduplicated (at most once per second per source) so the
+log stays readable. Turn it off after diagnosing.
 
-## Особенности и ограничения
+## Features and limitations
 
-- **Речь**: голосовой звук виден, когда его слышит хотя бы один NPC поблизости (второй
-  собеседник, напарник, мутант). Одинокий сталкер, бормочущий сам с собой в пустом помещении,
-  колец не даст — движок не рассылает «звук в никуда». В бою/на базе (типичные случаи)
-  речь отображается.
-- **Гул аномалий** — приближение: мод пульсирует кольцами по расписанию зоны (по умолчанию
-  раз в 4 с, зона рядом с вами шипит чаще — раз в ~1.1 с). Момент реального шипения
-  (активация) рисуется точно по колбэку `anomaly_on_before_activate`.
-- Кольца — **индикатор события**: они рисуются в точке, где прозвучал звук, и живут ~1 секунду.
-  Идущий персонаж «следует» за собой цепочкой колец; толкаемая бочка — цепочкой синих.
-- В бою источников много: анти-спам и лимит одновременных волн (16 при 2 волнах на звук)
-  не дают экрану превратиться в кашу; настраивается паузой «от одного источника».
-- Кольца не рисуются поверх инвентаря/диалогов/карт (HUD прячется при открытых меню).
+- **Speech**: a voice sound is visible when at least one NPC nearby hears it (the second
+  interlocutor, a companion, a mutant). A lone stalker muttering to himself in an empty room
+  gives no rings — the engine does not broadcast "sound into nowhere". In combat/at a base
+  (the typical cases) speech is displayed.
+- **Anomaly hum** — approaching: the mod pulses rings on the zone's schedule (default every
+  4 s; a zone right next to you hisses more often — every ~1.1 s). The moment of a real hiss
+  (activation) is drawn exactly by the `anomaly_on_before_activate` callback.
+- Rings are an **event indicator**: they are drawn at the point where the sound happened and
+  live ~1 second. A walking character "follows" themselves with a chain of rings; a pushed
+  barrel — with a chain of blue ones.
+- In combat there are many sources: anti-spam and the limit of simultaneous waves (16 at 2
+  waves per sound) keep the screen from turning into porridge; tuned by the "per-source
+  delay".
+- Rings are not drawn over inventory/dialogs/maps (the HUD hides when menus are open).
 
-## Совместимость
+## Compatibility
 
-- Мод состоит **только из новых файлов** с уникальными именами (`sound_vision*`):
-  перезаписей ванильных скриптов нет, конфликтов с другими аддонами не будет.
-- Модифицированный `xr_danger.script` (Stealth Overhaul и т.п.) — совместимо: оба аддона
-  лишь *добавляют* обработчики `npc_on_hear_callback`, они не мешают друг другу.
-- Работает на ванильных экзешниках 1.5.1+; на modded exes тоже работает.
+- The mod consists **only of new files** with unique names (`sound_vision*`): no vanilla
+  scripts are overwritten, no conflicts with other add-ons.
+- A modified `xr_danger.script` (Stealth Overhaul etc.) — compatible: both add-ons only
+  *add* `npc_on_hear_callback` handlers, they do not interfere with each other.
+- Works on vanilla executables 1.5.1+; works on modded exes too.
 
-## Состав мода
+## Mod contents
 
 ```
 gamedata/
 ├── configs/
-│   ├── text/eng/ui_st_sound_vision.xml      подписи MCM (англ.)
-│   ├── text/rus/ui_st_sound_vision.xml      подписи MCM (рус., CP1251)
-│   └── ui/ui_sound_vision.xml               XML-шаблоны 64 колец (32 жёстких + 32 мягких, v2.8)
+│   ├── text/eng/ui_st_sound_vision.xml      MCM labels (English)
+│   ├── text/rus/ui_st_sound_vision.xml      MCM labels (Russian, CP1251)
+│   └── ui/ui_sound_vision.xml               XML templates of 64 rings (32 hard + 32 soft, v2.8)
 ├── scripts/
-│   ├── sound_vision.script                  корень: колбэки-источники + регистрация
-│   ├── sound_vision_config.script           настройки: кэш значений MCM
-│   ├── sound_vision_classify.script         адаптивная классификация звука, цвета
-│   ├── sound_vision_overrides.script        ручной пул типов пользователя (правится под сборку)
-│   ├── sound_vision_events.script           очередь событий: слышимость, антиспам, масштаб
-│   ├── sound_vision_detect.script           опрос мира: шаги, физика, зоны, болт (4 Гц)
-│   ├── sound_vision_projection.script       мир -> HUD: проекция и пин к краю
-│   ├── sound_vision_render.script           пул колец, анимация, сглаживание переходов,
-│   │                                        виньетка центра, учёт перекрытия (v2.8)
-│   ├── sound_vision_occlusion.script        линия видимости: ray_pick, кэш, бюджет лучей (v2.8)
-│   ├── sound_vision_log.script              отладочный журнал (теги HEAR/GATE/QUEUE/RENDER/OCC)
-│   └── sound_vision_mcm.script              MCM-дерево + get_config()
+│   ├── sound_vision.script                  root: source callbacks + registration
+│   ├── sound_vision_config.script           settings: cache of MCM values
+│   ├── sound_vision_classify.script         adaptive sound classification, colors
+│   ├── sound_vision_overrides.script        manual user type pool (edited per build)
+│   ├── sound_vision_events.script           event queue: audibility, anti-spam, scale
+│   ├── sound_vision_detect.script           world polling: footsteps, physics, zones, bolt (4 Hz)
+│   ├── sound_vision_projection.script       world -> HUD: projection and edge pinning
+│   ├── sound_vision_render.script           ring pool, animation, transition smoothing,
+│   │                                        center vignette, occlusion (v2.8)
+│   ├── sound_vision_occlusion.script        line of sight: ray_pick, cache, ray budget (v2.8)
+│   ├── sound_vision_log.script              debug log (tags HEAR/GATE/QUEUE/RENDER/OCC)
+│   └── sound_vision_mcm.script              MCM tree + get_config()
 ├── docs/references/
-│   └── Звук в Аномалии.md                   справочник по звуковой системе для разработки
-└── textures/ui/sv_ring.dds                  белое кольцо (несжатый DDS 128×128)
-    textures/ui/sv_ring_soft.dds             размытое кольцо для ореолов за стеной (v2.8, пик = жёсткой с v2.8.1)
+│   └── Звук в Аномалии.md                   sound system reference for development (in Russian)
+└── textures/ui/sv_ring.dds                  white ring (uncompressed DDS 128×128)
+    textures/ui/sv_ring_soft.dds             blurred ring for behind-wall halos (v2.8, peak = hard one since v2.8.1)
 ```
 
-Модули зависят друг от друга однонаправленно и связываются лениво, как в
-Twitch Integration: каждый скрипт в конце объявляет свою глобальную таблицу
-(`_G.sound_vision_<модуль> = {...}`), а зависимости разрешает при первом
-вызове через `_G.<имя модуля>` — движок X-Ray сам загружает скрипт при
-первом обращении к его имени.
+Modules depend on each other unidirectionally and link lazily, as in Twitch Integration:
+every script declares its global table at the end (`_G.sound_vision_<module> = {...}`), and
+dependencies are resolved at the first call via `_G.<module name>` — the X-Ray engine loads
+the script itself at the first mention of its name.
 
-## Для разработчика
+## For developers
 
-- Константы по ответственности модулей: `POOL = 32` (ёмкость пула колец) и
-  `HEAR_CAP = 150` (предел показа по громкости, м) — в `sound_vision_events`;
+- Constants by module responsibility: `POOL = 32` (ring pool capacity) and `HEAR_CAP = 150`
+  (loudness show limit, m) — in `sound_vision_events`;
   `MOVE_POLL_MS = 250`, `STEP_MIN_D2 = 0.06`, `ZONE_NEAR_M = 3.0`, `BOLT_STOP_MS = 450`
-  и виртуальные якоря громкости `ANV_*` — в `sound_vision_detect`;
-  якоря гарантированного канала `ANV_SHOT` / `ANV_SHOT_SIL` / `ANV_RELOAD`, период
-  опроса боезапаса `WPN_POLL_MS = 200` и его радиус `WPN_POLL_D = 250` — в
-  `sound_vision.script`;
-  `PIN_MARGIN = 40` (отступ у края) — в `sound_vision_projection`;
-  `EDGE_BLEND_TAU = 120` (плавность перехода «экран ↔ край», мс) и
-  `OCC_TAU_MS = 120` (сглаживание смены «виден ↔ за стеной», мс) — в
-  `sound_vision_render`;
-  `OCC_TTL_MS = 350` (жизнь кэша состояния источника), `RAYS_FRAME = 2`
-  (бюджет лучей на кадр), `NEAR_M = 1.5` (ближние источники видны без луча),
-  `LOS_EPS_M = 0.45` (попадание вплотную к точке не считается стеной) — в
-  `sound_vision_occlusion`.
-- Добавить свой цвет/тип: дополните `KIND_COLOR` + `KIND_CAT` + `classify()`
-  в `sound_vision_classify.script` и добавьте чекбокс в
-  `sound_vision_mcm.script` (не забудьте ключи в обоих текстовых XML).
-- Классификация звука — каскад: переопределения пользователя (`sound_vision_overrides.script`)
-  → эвристика по подстрокам (`WPN_*`, `MST_*`, `ITM_*`, `voice`, `drop`…) → вывод по источнику
-  (мутант → «монстры») → «прочее» (синие). Результат кэшируется в реестре; с MCM-журналом
-  каждая новая строка типа пишется в лог игры.
-- Отладка в игре: глобальная таблица `sound_vision_debug` — `.events` (текущая очередь
-  событий, у каждого события поле `loud` — громкость у игрока и `occ_a`/`occ_s` — сглаженные
-  множители перекрытия), `.classify(s_type, who_id)`
-  (классификатор), `.types()` (реестр виденных типов: строка → категория и счётчик),
-  `.push_event(x, y, z, "step", nil, nil, 0.5)` (принудительно создать
-  событие с громкостью 0.5), `.refresh_config()` (перечитать настройки),
-  `.occlusion_stats()` (доступность `ray_pick`, размер кэша, счётчик лучей — v2.8).
-- Отладочный журнал — `sound_vision_log.script`, стиль Twitch Integration:
-  `dbg(tag, fmt, ...)` → `printf("[sound_vision][ТАГ] ...")`; выключатель —
-  `mc.debug_logs`, частотный фильтр — `rate(key, ms)`. Теги и трактовка цепочки —
-  в разделе «Диагностика» выше.
-- Движковая фактура по звуку (модель слышимости, ogg-комментарии, типы, колбэки) —
-  в `docs/references/Звук в Аномалии.md`; пополнение по мере находок.
-- Структура MCM-дерева — строго по документации MCM 1.7 (см. комментарий в начале
-  `sound_vision_mcm.script`).
+  and the virtual loudness anchors `ANV_*` — in `sound_vision_detect`;
+  the guaranteed channel anchors `ANV_SHOT` / `ANV_SHOT_SIL` / `ANV_RELOAD`, the ammo polling
+  period `WPN_POLL_MS = 200` and its radius `WPN_POLL_D = 250` — in `sound_vision.script`;
+  `PIN_MARGIN = 40` (edge margin) — in `sound_vision_projection`;
+  `EDGE_BLEND_TAU = 120` (edge↔frame transition smoothness, ms) and `OCC_TAU_MS = 120`
+  (smoothing of the "visible ↔ behind the wall" switch, ms) — in `sound_vision_render`;
+  `OCC_TTL_MS = 350` (source state cache life), `RAYS_FRAME = 2` (ray budget per frame),
+  `NEAR_M = 1.5` (close sources are seen without a ray), `LOS_EPS_M = 0.45` (a hit right next
+  to the point does not count as a wall) — in `sound_vision_occlusion`.
+- Add your own color/type: extend `KIND_COLOR` + `KIND_CAT` + `classify()` in
+  `sound_vision_classify.script` and add a checkbox in `sound_vision_mcm.script` (do not
+  forget the keys in both text XML files).
+- Sound classification is a cascade: user overrides (`sound_vision_overrides.script`) →
+  substring heuristics (`WPN_*`, `MST_*`, `ITM_*`, `voice`, `drop`…) → inference from the
+  source (a mutant → "monsters") → "other" (blue). The result is cached in a registry; with
+  the MCM log every new type string is written to the game log.
+- In-game debugging: the global table `sound_vision_debug` — `.events` (the current event
+  queue; each event carries `loud` — loudness at the player, and `occ_a`/`occ_s` — smoothed
+  occlusion multipliers), `.classify(s_type, who_id)` (the classifier), `.types()` (the
+  registry of seen types: string → category and counter), `.push_event(x, y, z, "step", nil,
+  nil, 0.5)` (force an event with loudness 0.5), `.refresh_config()` (re-read settings),
+  `.occlusion_stats()` (`ray_pick` availability, cache size, ray counter — v2.8).
+- The debug log — `sound_vision_log.script`, Twitch Integration style:
+  `dbg(tag, fmt, ...)` → `printf("[sound_vision][TAG] ...")`; the switch is `mc.debug_logs`,
+  the rate filter is `rate(key, ms)`. Tags and the chain interpretation are in the
+  "Diagnostics" section above.
+- Engine facts about sound (the audibility model, ogg comments, types, callbacks) — in
+  `docs/references/Звук в Аномалии.md` (in Russian); extended as findings arrive.
+- The MCM tree structure follows the MCM 1.7 documentation strictly (see the comment at the
+  top of `sound_vision_mcm.script`).

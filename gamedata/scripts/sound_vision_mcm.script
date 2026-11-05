@@ -19,6 +19,8 @@ local defaults = {
         enabled     = true,    -- мод включён
         show_own    = false,   -- показывать собственные звуки игрока
         by_loudness = true,    -- слышимость по громкости (как в игре)
+        loud_th     = 10,      -- порог слышимости, промилле громкости; 0 = показывать
+                               -- всё; на метки выстрелов не действует (v2.8.2)
         max_dist    = 45,      -- радиус опроса мира / лимит в режиме "по дистанции", м
         lifetime    = 1.2,     -- время жизни волны, сек
         throttle    = 0.3,     -- пауза между волнами одного источника, сек
@@ -61,6 +63,7 @@ local opt_group = {
         enabled     = "general",
         show_own    = "general",
         by_loudness = "hearing",
+        loud_th     = "hearing",
         max_dist    = "general",
         lifetime    = "general",
         throttle    = "general",
@@ -134,8 +137,10 @@ function on_mcm_load()
                         { id = "hearing", sh = true, text = "ui_mcm_sound_vision_section_hearing", gr = {
                                 { id = "title_hearing", type = "title", text = "ui_mcm_sound_vision_section_hearing" },
                                 { id = "by_loudness", type = "check", val = 1, def = defaults.by_loudness },
-                                -- loud_th удалена (v2.7): гейта слышимости больше нет,
-                                -- показывается всё, что поймали каналы
+                                -- v2.8.2: порог слышимости вернули по запросу игроков
+                                -- (0 = показывать всё; weapon-метки не фильтруются)
+                                { id = "loud_th", type = "track", val = 2,
+                                        def = defaults.loud_th, min = 0, max = 100, step = 5 },
                         } },
                         { id = "size", sh = true, text = "ui_mcm_sound_vision_section_size", gr = {
                                 { id = "title_size", type = "title", text = "ui_mcm_sound_vision_section_size" },
