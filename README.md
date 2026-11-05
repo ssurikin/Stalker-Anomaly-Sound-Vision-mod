@@ -9,6 +9,8 @@ game draws **expanding rings right on the screen** at the point of any sound sou
 
 [English](README.md) | [Русский](README.ru.md)
 
+*Author's media:* [Telegram](https://t.me/ssurikinn) · [Twitch](https://twitch.tv/ssurikin) · [Support the author](https://donationalerts.com/r/ssurikinn)
+
 ---
 
 ## What you will see
@@ -100,5 +102,3 @@ and the debug log - in the technical specification:
 **[docs/specs.md](docs/specs.md)**.
 
 ---
-
-*Author's media:* [Telegram](https://t.me/ssurikinn) · [Twitch](https://twitch.tv/ssurikin) · [Support the author](https://donationalerts.com/r/ssurikinn)
