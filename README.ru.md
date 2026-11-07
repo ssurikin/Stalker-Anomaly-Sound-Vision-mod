@@ -11,6 +11,10 @@ Sound Vision  - accessibility-мод для **S.T.A.L.K.E.R.: Anomaly** (1.5.1 /
 
 *Медиа автора:* [Телеграм](https://t.me/ssurikinn) · [Твич](https://twitch.tv/ssurikin) · [Поддержать автора](https://donationalerts.com/r/ssurikinn)
 
+# Скачать
+[Репозиторий гитхаб](https://github.com/ssurikin/Stalker-Anomaly-Sound-Vision-mod/archive/refs/heads/main.zip)
+[Страница на Moddb](https://www.moddb.com/mods/stalker-anomaly/addons/sound-vision-hearing-accessibility-mod)
+
 ---
 
 ## Что вы увидите
