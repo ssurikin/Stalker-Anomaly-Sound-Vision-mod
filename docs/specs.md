@@ -409,7 +409,9 @@ comment at the top of the script). Option captions are taken from
 
 The single point of reading settings is `sound_vision_mcm.get_config(key)`: it reads the
 value from `ui_mcm.get("sound_vision/<group>/<key>")` under `pcall`, and falls back to the
-built-in defaults when MCM is not installed. Values are cached in
+built-in defaults when MCM is not installed (the one exception is `enabled`, which
+without MCM falls back to the state file — see 10.1). The single point of writing
+runtime values is `sound_vision_mcm.set_config(key, value)` (v2.9.3). Values are cached in
 `sound_vision_config.mc` and refreshed by `refresh_config()`, which is invoked on
 `on_game_start`, `actor_on_first_update` and `on_option_change` (MCM "apply").
 
@@ -442,18 +444,32 @@ compares the pressed key with the bound one read via
 (`ui_mcm.get("sound_vision/general/toggle_key")`; without MCM the built-in default is
 used) and calls `sound_vision_config.toggle_enabled()`.
 
-Toggle semantics: the key flips the same `mc.enabled` flag that the "Enable mod" checkbox
-controls. The state is kept as a runtime override in `sound_vision_config`:
+Toggle semantics (v2.9.3): the key flips the same `sound_vision/general/enabled` option
+that the "Enable mod" checkbox controls, so the hotkey and the checkbox are one switch in
+both directions. The new state is written back with
+`sound_vision_mcm.set_config("enabled", ...)`:
 
-- the override survives `refresh_config()` — a save/load or applying unrelated MCM
-  options does not resurrect halos the player just hid;
-- it resets when the player changes the "Enable mod" checkbox itself in the MCM — the
-  checkbox is authoritative;
-- a game restart (fresh Lua state) starts from the checkbox value again.
+- with MCM: `ui_mcm.set` writes the value into Anomaly's `axr_options.ltx` immediately
+  (MCM source, `ui_mcm.script`: `set` = `axr_main.config:w_value` + `save`). An earlier
+  draft of this section wrongly claimed MCM has no `ui_mcm.set` — it does, and it
+  persists on disk right away. The checkbox renders exactly this stored value
+  (`Register_Check` → `GetValue` → `axr_main.config:r_value`), so the state set by the
+  hotkey is what the menu shows at the next open;
+- without MCM: the state goes to `sound_vision_state.ltx` next to the script — the Twitch
+  Integration pattern (`twitch_followers.script`): `io.open` plus a one-value ltx file,
+  path derived from `debug.getinfo`. It is read once per Lua session and rewritten on
+  every toggle; a missing or unreadable file means the default (enabled).
 
-Every toggle is logged as `CONFIG hotkey toggle: enabled=... (mcm checkbox=...)`. MCM has
-no `ui_mcm.set`, so the checkbox itself is not rewritten by the hotkey — on purpose: the
-checkbox remains the persistent setting, the hotkey is a per-session switch.
+Either way the state survives game restarts, save loads and level changes: on every
+fresh Lua state `refresh_config()` reads the stored value back, so halos come back in
+exactly the state the player left them. `toggle_enabled` always reads the current state
+from storage before flipping it, so it cannot go out of sync with the checkbox. The
+v2.9.2 runtime override (`hotkey_override` in `sound_vision_config`) is removed — it
+lived only in Lua VM memory, which is why a restart or a level change used to reset the
+hotkey state to the checkbox value.
+
+Every toggle is logged as `CONFIG hotkey toggle: enabled=... (persisted=...)`; a failed
+`ui_mcm.set` is logged as `CONFIG ERROR: ui_mcm.set(...)`.
 
 ## 11. Constants and module responsibilities
 

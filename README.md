@@ -72,7 +72,10 @@ Everything is configured in the MCM, and every option has a description on hover
 
 - **General** - enable/disable the mod, your own sounds, detection range, wave lifetime,
   and the **"Sound Vision: show/hide halos" hotkey**: press it right in the game to show
-  or hide all rings without opening any menu. Default key: `-`; rebind it in the MCM;
+  or hide all rings without opening any menu. Default key: `-`; rebind it in the MCM. The
+  state persists between sessions: the key and the "Enable mod" checkbox are one and the
+  same switch, and after a game restart, a save load or a level change the halos stay
+  exactly the way you left them;
 - **Hearing** - audibility mode and the optional hearing threshold;
 - **Size and animation** - ring size, waves per sound, brightness, large explosion rings;
 - **Sound types** - six category toggles (weapon, voice, steps, mutants, anomalies, physics);

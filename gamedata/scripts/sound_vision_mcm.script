@@ -2,8 +2,9 @@
 -- sound_vision_mcm: интеграция с MCM (Mod Configuration Menu)
 -- Работает и без установленного MCM: тогда используются значения по умолчанию.
 --
--- Ответственность (SRP): только дерево настроек и единая точка их чтения.
--- Кэширование и хранение значений - в sound_vision_config.
+-- Ответственность (SRP): только дерево настроек и единые точки чтения/записи
+-- значений (get_config/set_config). Кэширование и хранение значений - в
+-- sound_vision_config.
 --
 -- Структура дерева - по официальной документации MCM
 -- (github.com/RAX-Anomaly/Anomaly-Mod-Configuration-Menu) и по образцу
@@ -110,7 +111,65 @@ local opt_group = {
         debug_logs  = "debug",
 }
 
--- Единая точка чтения настроек: из MCM, а если его нет - из defaults.
+-- ---------------------------------------------------------------------------
+-- State-файл (v2.9.3): персистентность состояния «ВКЛ/ВЫКЛ» без MCM - по
+-- образцу Twitch Integration (twitch_followers.script: io.open + ltx-файл
+-- рядом со скриптом, путь берётся из debug.getinfo). Хранится ровно одно
+-- значение - enabled=true|false в секции [state]; файл читается один раз
+-- за сессию Lua и перезаписывается при каждом переключении. Отсутствие или
+-- нечитаемость файла = значение по умолчанию (включено).
+-- ---------------------------------------------------------------------------
+local state_path  = nil
+local state_cache = nil -- nil = ещё не читали в этой сессии; иначе true/false
+
+local function get_state_path()
+        if state_path then return state_path end
+        local ok, dir = pcall(function()
+                return debug.getinfo(1, "S").source:sub(2):match("(.*[\\/])")
+        end)
+        if ok and dir then
+                state_path = dir .. "sound_vision_state.ltx"
+        end
+        return state_path
+end
+
+local function read_state_file()
+        if state_cache ~= nil then return state_cache end
+        local path = get_state_path()
+        if not path then return nil end
+        local f = io.open(path, "r")
+        if not f then return nil end
+        for line in f:lines() do
+                local v = line:match("^%s*enabled%s*=%s*(%S+)%s*$")
+                if v then
+                        state_cache = (v:lower() == "true")
+                        break
+                end
+        end
+        f:close()
+        return state_cache
+end
+
+local function write_state_file(value)
+        state_cache = (value == true)
+        local path = get_state_path()
+        if not path then return end
+        local f = io.open(path, "w+")
+        if not f then
+                local L = _G.sound_vision_log
+                if L and L.on() then
+                        L.dbg("CONFIG", "ERROR: cannot write state file: %s", path)
+                end
+                return
+        end
+        f:write("[state]\n")
+        f:write("; Sound Vision: состояние показа ореолов (хоткей «-»), хранится без MCM\n")
+        f:write("enabled = " .. (value == true and "true" or "false") .. "\n")
+        f:close()
+end
+
+-- Единая точка чтения настроек: из MCM, а если его нет - из state-файла
+-- (только enabled) или из defaults.
 function get_config(key)
         if ui_mcm then
                 local g = opt_group[key]
@@ -121,7 +180,42 @@ function get_config(key)
                         end
                 end
         end
+        if key == "enabled" then
+                local v = read_state_file()
+                if v ~= nil then
+                        return v
+                end
+        end
         return defaults[key]
+end
+
+-- Единая точка записи runtime-значений (v2.9.3). Хоткей «-» записывает новое
+-- состояние «ВКЛ/ВЫКЛ» в ТУ ЖЕ опцию MCM, что и галочка «Включить мод»
+-- («Общие» -> enabled): ui_mcm.set сохраняет значение в axr_options.ltx
+-- немедленно (ui_mcm.script: set -> axr_main.config:w_value + save), поэтому
+-- состояние переживает перезапуск игры, загрузку сохранения и переход между
+-- уровнями, а галочка в MCM при следующем открытии показывает актуальное
+-- значение. Без MCM значение уходит в state-файл рядом со скриптом. Сознательно
+-- без атомарности «записал-точно»: при сбое ui_mcm.set сессия остаётся на кэше,
+-- ошибка видна в отладочном журнале, а state-файл в этом случае лишь зеркало
+-- текущей сессии - чтение всё равно идёт через MCM.
+function set_config(key, value)
+        if ui_mcm then
+                local g = opt_group[key]
+                if g then
+                        local ok, err = pcall(ui_mcm.set, "sound_vision/" .. g .. "/" .. key, value)
+                        if ok then return true end
+                        local L = _G.sound_vision_log
+                        if L and L.on() then
+                                L.dbg("CONFIG", "ERROR: ui_mcm.set(%s): %s", key, tostring(err))
+                        end
+                end
+        end
+        if key == "enabled" then
+                write_state_file(value)
+                return true
+        end
+        return false
 end
 
 -- MCM вызывает on_option_change во всех *_mcm.script при применении настроек
@@ -141,7 +235,10 @@ function on_mcm_load()
                                 { id = "title_general", type = "title", text = "ui_mcm_sound_vision_section_general" },
                                 { id = "enabled",  type = "check", val = 1, def = defaults.enabled },
                                 -- v2.9.2: хоткей показа/скрытия ореолов - тот же
-                                -- переключатель «мод вкл/выкл», но прямо в игре.
+                                -- переключатель «мод вкл/выкл», но прямо в игре;
+                                -- v2.9.3: переключение клавишей пишется в саму
+                                -- опцию enabled (set_config) и сохраняется между
+                                -- сессиями игры.
                                 -- key_bind хранит DIK-код клавиши (см. документацию
                                 -- MCM: у key_bind обязательно val = 2).
                                 { id = "toggle_key", type = "key_bind", val = 2, def = defaults.toggle_key },
